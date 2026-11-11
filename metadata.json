@@ -1,0 +1,6 @@
+{
+  "name": "Z-POS",
+  "description": "A complete Point of Sale, Inventory Management, and Financial System for Retail Businesses, multi-role access, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
