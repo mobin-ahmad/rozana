@@ -308,9 +308,9 @@ export const initialItemDefinitions: ItemDefinition[] = [
 ];
 
 export const initialSuppliers: Supplier[] = [
-  { id: 1, name: 'Global Timber Ltd', phone: '03001000010', address: 'Industrial Zone A, Forest Port', is_active: true, created_by: 1, created_at: dateAgo(90) },
-  { id: 2, name: 'Evergreen Sawmill', phone: '03001000011', address: 'Sector 5, Mill Road', is_active: true, created_by: 1, created_at: dateAgo(80) },
-  { id: 3, name: 'Northern Wood Co', phone: '03001000012', address: 'Highway 10, Timber Depot', is_active: true, created_by: 2, created_at: dateAgo(60) },
+  { id: 1, name: 'Metro Wholesale Distributors', phone: '03001000010', address: 'Industrial Zone A, Supply Hub', is_active: true, created_by: 1, created_at: dateAgo(90) },
+  { id: 2, name: 'Prime Consumer Goods Ltd', phone: '03001000011', address: 'Sector 5, Trade Center', is_active: true, created_by: 1, created_at: dateAgo(80) },
+  { id: 3, name: 'National FMCG Suppliers', phone: '03001000012', address: 'Main Boulevard, Wholesale Market', is_active: true, created_by: 2, created_at: dateAgo(60) },
 ];
 
 export const initialCustomers: Customer[] = [
@@ -432,7 +432,7 @@ export const initialSettings: SystemSettings = {
   default_sell_rate: 16500,
   invoice_prefix: 'INV',
   purchase_prefix: 'PUR',
-  invoice_footer: 'Thank you for trading with us! Timber once delivered cannot be returned after 3 days.',
+  invoice_footer: 'Thank you for shopping with us! Items can be returned or exchanged within 3 days with receipt.',
   loyalty_enabled: true,
   loyalty_earn_amount_per_point: 100, // Spend 100 currency units to earn 1 point
   loyalty_redemption_rate: 1.0, // 1 point = 1 currency unit
