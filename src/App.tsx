@@ -174,26 +174,24 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F3F4F6] text-slate-800 flex flex-col font-sans antialiased">
-      {/* Top Header Navbar (Hidden on Z-POS screen per user layout preference) */}
-      {activeTab !== 'zpos' && (
+    <div className="h-screen bg-slate-100 text-slate-800 flex font-sans antialiased overflow-hidden">
+      {/* Left Navigation Sidebar (Z-POS SaaS badge card at top aligns with header bar) */}
+      <Sidebar
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        userRole={currentUser?.role || 'admin'}
+        currentUser={currentUser}
+        isMobileOpen={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        onLogout={handleLogout}
+      />
+
+      {/* Right Workspace Column: Unified Z-POS Dark Header across all screens */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100">
         <Navbar
           currentUser={currentUser}
           onOpenSearch={() => setIsSearchOpen(true)}
           onToggleSidebarMobile={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
-          onLogout={handleLogout}
-        />
-      )}
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Navigation Sidebar */}
-        <Sidebar
-          activeTab={activeTab}
-          onSelectTab={(tab) => setActiveTab(tab)}
-          userRole={currentUser?.role || 'admin'}
-          currentUser={currentUser}
-          isMobileOpen={isMobileSidebarOpen}
-          onCloseMobile={() => setIsMobileSidebarOpen(false)}
           onLogout={handleLogout}
         />
 

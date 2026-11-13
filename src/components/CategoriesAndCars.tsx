@@ -2,13 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   FolderTree,
   Plus,
-  Truck,
   Edit2,
   Trash2,
   CheckCircle,
   XCircle,
-  Eye,
-  Calendar,
   Layers,
   X,
   Download,
@@ -26,16 +23,12 @@ import {
 import * as XLSX from 'xlsx';
 import {
   getCategories,
-  getSubCategories,
   getItemGroups,
   getBrands,
   getItemDefinitions,
-  getWoodStocks,
   getUsers,
   saveCategory,
   deleteCategory,
-  saveSubCategory,
-  deleteSubCategory,
   saveItemGroup,
   deleteItemGroup,
   saveBrand,
@@ -43,15 +36,14 @@ import {
   saveItemDefinition,
   deleteItemDefinition,
   bulkImportCategories,
-  bulkImportSubCategories,
   bulkImportItemGroups,
   bulkImportBrands,
   bulkImportItemDefinitions,
   getSettings,
   subscribeToStorage
 } from '../lib/storage';
-import { Category, SubCategory, ItemGroup, Brand, ItemDefinition, UserRole } from '../types';
-import { formatCurrency, formatCft } from '../lib/cft';
+import { Category, ItemGroup, Brand, ItemDefinition, UserRole } from '../types';
+import { formatCurrency } from '../lib/cft';
 
 interface CategoriesAndCarsProps {
   userRole: UserRole;
@@ -67,18 +59,16 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   }, []);
 
   const categories = getCategories();
-  const subCats = getSubCategories();
   const itemGroups = getItemGroups();
   const brands = getBrands();
   const itemDefinitions = getItemDefinitions();
-  const stocks = getWoodStocks();
   const users = getUsers();
   const settings = getSettings();
 
   const isAdmin = userRole === 'admin';
   const isEditable = userRole === 'admin' || userRole === 'manager' || userRole === 'warehouse_staff';
 
-  const [activeTab, setActiveTab] = useState<'lots' | 'categories' | 'groups' | 'brands' | 'items'>('lots');
+  const [activeTab, setActiveTab] = useState<'groups' | 'categories' | 'brands' | 'items'>('groups');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Category Modal
@@ -87,14 +77,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const [catItemGroupId, setCatItemGroupId] = useState<string | number>('');
   const [catName, setCatName] = useState('');
   const [catDesc, setCatDesc] = useState('');
-
-  // Shipment Lot Modal
-  const [showCarModal, setShowCarModal] = useState(false);
-  const [editingCar, setEditingCar] = useState<SubCategory | null>(null);
-  const [carCatId, setCarCatId] = useState<number>(categories[0]?.id || 1);
-  const [carName, setCarName] = useState('');
-  const [carArrivalDate, setCarArrivalDate] = useState('');
-  const [carDesc, setCarDesc] = useState('');
 
   // Item Group Modal
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -145,9 +127,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Detail Modal
-  const [viewingCar, setViewingCar] = useState<SubCategory | null>(null);
-
   const getUserName = (userId: number) => {
     const user = users.find((u) => u.id === userId);
     return user ? user.full_name : `User #${userId}`;
@@ -192,52 +171,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
     }
     if (window.confirm('Are you sure you want to delete this category?')) {
       const res = deleteCategory(id);
-      if (!res.success) alert(res.message);
-    }
-  };
-
-  // --- Shipment Lot Handlers ---
-  const handleOpenCarModal = (car?: SubCategory) => {
-    if (car) {
-      setEditingCar(car);
-      setCarCatId(car.category_id);
-      setCarName(car.name);
-      setCarArrivalDate(car.arrival_date || '');
-      setCarDesc(car.description || '');
-    } else {
-      setEditingCar(null);
-      setCarCatId(categories[0]?.id || 1);
-      setCarName(`Lot ${subCats.length + 1}`);
-      setCarArrivalDate(new Date().toISOString().split('T')[0]);
-      setCarDesc('');
-    }
-    setShowCarModal(true);
-  };
-
-  const handleSaveCar = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!carName.trim() || !carCatId) return;
-    const res = saveSubCategory({
-      id: editingCar?.id,
-      category_id: carCatId,
-      name: carName,
-      arrival_date: carArrivalDate,
-      description: carDesc,
-    });
-    if (res.success) {
-      setShowCarModal(false);
-    } else {
-      alert(res.message);
-    }
-  };
-
-  const handleDeleteCar = (id: number) => {
-    if (userRole !== 'admin') {
-      alert('Only administrators have permission to delete shipment lots.');
-      return;
-    }
-    if (window.confirm('Are you sure you want to delete this shipment lot?')) {
-      const res = deleteSubCategory(id);
       if (!res.success) alert(res.message);
     }
   };
@@ -489,25 +422,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
   // Option 1: Export Template
   const handleExportTemplate = () => {
-    if (activeTab === 'lots') {
-      const templateData = [
-        {
-          'Lot Code / Name': 'Lot 101',
-          'Category Name': categories[0]?.name || 'Raw Wood',
-          'Arrival Date': new Date().toISOString().split('T')[0],
-          'Description': 'First teak batch shipment lot',
-          'Is Active': 'TRUE'
-        },
-        {
-          'Lot Code / Name': 'Lot 102',
-          'Category Name': categories[1]?.name || 'Processed Wood',
-          'Arrival Date': new Date().toISOString().split('T')[0],
-          'Description': 'Second pine planks shipment lot',
-          'Is Active': 'TRUE'
-        }
-      ];
-      exportToExcelFile(templateData, 'Shipment_Lots_Upload_Template', 'Shipment_Lots');
-    } else if (activeTab === 'categories') {
+    if (activeTab === 'categories') {
       const templateData = [
         {
           'Category Name': 'Hardwood Timber',
@@ -585,40 +500,15 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
   // Option 2: Export Excel
   const handleExportExcel = () => {
-    if (activeTab === 'lots') {
-      const exportData = subCats.map((sc) => {
-        const cat = categories.find((c) => c.id === sc.category_id);
-        const carStocks = stocks.filter((s) => s.sub_category_id === sc.id);
-        const totalPcs = carStocks.reduce((sum, s) => sum + s.qty, 0);
-        const totalCft = carStocks.reduce((sum, s) => sum + s.cft * s.qty, 0);
-
-        return {
-          'ID': sc.id,
-          'Lot Code / Name': sc.name,
-          'Category': cat ? cat.name : 'N/A',
-          'Arrival Date': sc.arrival_date || 'N/A',
-          'Description': sc.description || '',
-          'Total Pieces': totalPcs,
-          'Total Volume (CFT)': Math.round(totalCft * 100) / 100,
-          'Status': sc.is_active ? 'Active' : 'Inactive',
-          'Created By': getUserName(sc.created_by),
-          'Created At': new Date(sc.created_at).toLocaleString(),
-        };
-      });
-      exportToExcelFile(exportData, 'Shipment_Lots_Export', 'Shipment_Lots');
-    } else if (activeTab === 'categories') {
-      const exportData = categories.map((c) => {
-        const linkedLots = subCats.filter((sc) => sc.category_id === c.id);
-        return {
-          'ID': c.id,
-          'Category Name': c.name,
-          'Description': c.description || '',
-          'Linked Shipment Lots': linkedLots.length,
-          'Status': c.is_active ? 'Active' : 'Inactive',
-          'Created By': getUserName(c.created_by),
-          'Created At': new Date(c.created_at).toLocaleString(),
-        };
-      });
+    if (activeTab === 'categories') {
+      const exportData = categories.map((c) => ({
+        'ID': c.id,
+        'Category Name': c.name,
+        'Description': c.description || '',
+        'Status': c.is_active ? 'Active' : 'Inactive',
+        'Created By': getUserName(c.created_by),
+        'Created At': new Date(c.created_at).toLocaleString(),
+      }));
       exportToExcelFile(exportData, 'Categories_Export', 'Categories');
     } else if (activeTab === 'groups') {
       const exportData = itemGroups.map((g) => ({
@@ -710,9 +600,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         }
 
         let res = { success: false, message: '', count: 0 };
-        if (activeTab === 'lots') {
-          res = bulkImportSubCategories(jsonData);
-        } else if (activeTab === 'categories') {
+        if (activeTab === 'categories') {
           res = bulkImportCategories(jsonData);
         } else if (activeTab === 'groups') {
           res = bulkImportItemGroups(jsonData);
@@ -736,22 +624,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
     reader.readAsBinaryString(selectedFile);
   };
 
-  // Car lot wood items for details view
-  const carWoodItems = viewingCar
-    ? stocks.filter((s) => s.sub_category_id === viewingCar.id)
-    : [];
-
   // Filtered lists
-  const filteredLots = subCats.filter((sc) => {
-    const q = searchQuery.toLowerCase();
-    const cat = categories.find((c) => c.id === sc.category_id);
-    return (
-      sc.name.toLowerCase().includes(q) ||
-      (cat && cat.name.toLowerCase().includes(q)) ||
-      sc.description.toLowerCase().includes(q)
-    );
-  });
-
   const filteredCategories = categories.filter((c) => {
     const q = searchQuery.toLowerCase();
     const parentGroup = itemGroups.find(
@@ -802,11 +675,11 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
             <FolderTree className="w-6 h-6 text-emerald-600" /> Item Setup
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Configure wood categories, shipment lots, item groups, brands, and item definitions with bulk import & export options.
+            Configure item groups, categories, brands, and item definitions with bulk import & export options.
           </p>
         </div>
 
-        {/* View Switcher Tabs (5 Segments) */}
+        {/* View Switcher Tabs (4 Segments) */}
         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
           <div className="bg-gray-100 p-1 rounded-xl flex items-center text-xs font-bold text-gray-600 w-full sm:w-auto justify-between sm:justify-start">
             <button
@@ -853,17 +726,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
             >
               Item Definition ({itemDefinitions.length})
             </button>
-            <button
-              onClick={() => {
-                setActiveTab('lots');
-                setSearchQuery('');
-              }}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
-                activeTab === 'lots' ? 'bg-white text-gray-900 shadow-sm' : 'hover:text-gray-900'
-              }`}
-            >
-              Shipment Lots ({subCats.length})
-            </button>
           </div>
         </div>
       </div>
@@ -878,9 +740,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={
-              activeTab === 'lots'
-                ? 'Search shipment lots by code or category...'
-                : activeTab === 'categories'
+              activeTab === 'categories'
                 ? 'Search categories by name or description...'
                 : activeTab === 'groups'
                 ? 'Search item groups by Group_ID or description...'
@@ -933,8 +793,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
           {isEditable && (
             <button
               onClick={() => {
-                if (activeTab === 'lots') handleOpenCarModal();
-                else if (activeTab === 'categories') handleOpenCatModal();
+                if (activeTab === 'categories') handleOpenCatModal();
                 else if (activeTab === 'groups') handleOpenGroupModal();
                 else if (activeTab === 'brands') handleOpenBrandModal();
                 else handleOpenItemModal();
@@ -942,9 +801,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 ml-auto sm:ml-0"
             >
               <Plus className="w-4 h-4" />
-              {activeTab === 'lots'
-                ? 'Add Lot'
-                : activeTab === 'categories'
+              {activeTab === 'categories'
                 ? 'Add Category'
                 : activeTab === 'groups'
                 ? 'Add Item Group'
@@ -956,119 +813,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         </div>
       </div>
 
-      {/* SEGMENT 1: Shipment Lots Tab Content */}
-      {activeTab === 'lots' && (
-        <>
-          {filteredLots.length === 0 ? (
-            <div className="bg-white p-12 text-center rounded-2xl border border-gray-100 text-gray-500">
-              <Truck className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="font-bold text-base text-gray-700">No shipment lots found</p>
-              <p className="text-xs text-gray-400 mt-1">Try adding a new lot or performing a bulk upload.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredLots.map((car) => {
-                const cat = categories.find((c) => c.id === car.category_id);
-                const carStocks = stocks.filter((s) => s.sub_category_id === car.id);
-
-                const totalPcs = carStocks.reduce((sum, s) => sum + s.qty, 0);
-                const availablePcs = carStocks.filter((s) => s.status === 'available').reduce((sum, s) => sum + s.qty, 0);
-                const soldPcs = carStocks.filter((s) => s.status === 'sold').reduce((sum, s) => sum + s.qty, 0);
-                const totalCftSum = carStocks.reduce((sum, s) => sum + s.cft * s.qty, 0);
-                const totalStockValue = carStocks
-                  .filter((s) => s.status === 'available')
-                  .reduce((sum, s) => sum + s.sell_price, 0);
-
-                return (
-                  <div
-                    key={car.id}
-                    className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all space-y-4 flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="font-black text-base text-gray-900 flex items-center gap-2">
-                          <Truck className="w-4 h-4 text-emerald-600" />
-                          {car.name}
-                        </span>
-                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
-                          {cat ? cat.name : 'Category'}
-                        </span>
-                      </div>
-
-                      {car.description && <p className="text-xs text-gray-500 mt-1">{car.description}</p>}
-
-                      <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-2">
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>Arrival: {car.arrival_date || 'N/A'}</span>
-                      </div>
-
-                      {/* Aggregated Lot Statistics */}
-                      <div className="mt-4 p-3 bg-gray-50 rounded-xl space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Total Volume:</span>
-                          <span className="font-bold text-emerald-700">{formatCft(totalCftSum)}</span>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Total Pieces:</span>
-                          <span className="font-bold text-gray-900">{totalPcs} items</span>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Available / Sold:</span>
-                          <span className="font-medium text-gray-800">
-                            <span className="text-emerald-600 font-bold">{availablePcs} avail</span> / {soldPcs} sold
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between border-t border-gray-200/60 pt-2">
-                          <span className="text-gray-600 font-semibold">Available Valuation:</span>
-                          <span className="font-extrabold text-gray-900">
-                            {formatCurrency(totalStockValue, settings.currency_symbol)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center justify-between border-t border-gray-100 pt-3 text-xs">
-                      <button
-                        onClick={() => setViewingCar(car)}
-                        className="text-emerald-600 font-bold hover:underline flex items-center gap-1"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> View Pieces ({carStocks.length})
-                      </button>
-
-                      {isEditable && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleOpenCarModal(car)}
-                            className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-gray-100 rounded-lg"
-                            title="Edit shipment lot"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleDeleteCar(car.id)}
-                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Delete shipment lot (Admin only)"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* SEGMENT 2: Categories Tab Content */}
+      {/* SEGMENT 1: Categories Tab Content */}
       {activeTab === 'categories' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
@@ -1078,7 +823,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                   <th className="p-3.5">Category Name</th>
                   <th className="p-3.5">Parent Item Group</th>
                   <th className="p-3.5">Description</th>
-                  <th className="p-3.5 text-center">Linked Lots</th>
                   <th className="p-3.5 text-center">Linked Items</th>
                   <th className="p-3.5">Status</th>
                   <th className="p-3.5">Created By</th>
@@ -1089,13 +833,12 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               <tbody className="divide-y divide-gray-100">
                 {filteredCategories.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-gray-400 font-semibold">
+                    <td colSpan={8} className="p-8 text-center text-gray-400 font-semibold">
                       No categories found.
                     </td>
                   </tr>
                 ) : (
                   filteredCategories.map((cat) => {
-                    const linkedCars = subCats.filter((sc) => sc.category_id === cat.id);
                     const linkedItems = itemDefinitions.filter(
                       (itm) => Number(itm.category_id) === Number(cat.id) || itm.category_id === cat.name
                     );
@@ -1117,9 +860,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                           )}
                         </td>
                         <td className="p-3.5 text-gray-600">{cat.description || '—'}</td>
-                        <td className="p-3.5 text-center font-bold text-emerald-700">
-                          {linkedCars.length} lots
-                        </td>
                         <td className="p-3.5 text-center font-bold text-blue-700">
                           {linkedItems.length} items
                         </td>
@@ -1441,67 +1181,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         </div>
       )}
 
-      {/* Shipment Lot Breakdown Drawer / Modal */}
-      {viewingCar && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-3xl w-full shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div>
-                <h3 className="font-bold text-base text-gray-900 flex items-center gap-2">
-                  <Truck className="w-5 h-5 text-emerald-600" />
-                  Wood Pieces in {viewingCar.name}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Total Lot: {carWoodItems.length} wood pieces ({formatCft(carWoodItems.reduce((s, i) => s + i.cft * i.qty, 0))})
-                </p>
-              </div>
-              <button onClick={() => setViewingCar(null)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              <table className="w-full text-left border-collapse text-xs font-mono">
-                <thead>
-                  <tr className="bg-gray-100 font-bold text-gray-700 text-[10px] uppercase">
-                    <th className="p-2.5">Serial #</th>
-                    <th className="p-2.5">Dimensions</th>
-                    <th className="p-2.5 text-right">CFT</th>
-                    <th className="p-2.5 text-right">Qty</th>
-                    <th className="p-2.5 text-right">Est. Price</th>
-                    <th className="p-2.5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {carWoodItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="p-2.5 font-bold font-sans text-gray-900">{item.serial}</td>
-                      <td className="p-2.5 font-sans">{item.width}" W × {item.length}' L</td>
-                      <td className="p-2.5 text-right font-bold text-emerald-700">{item.cft.toFixed(2)}</td>
-                      <td className="p-2.5 text-right font-sans">{item.qty}</td>
-                      <td className="p-2.5 text-right font-sans font-bold">
-                        {formatCurrency(item.sell_price, settings.currency_symbol)}
-                      </td>
-                      <td className="p-2.5 font-sans">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            item.status === 'available'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-gray-100 text-gray-600'
-                          }`}
-                        >
-                          {item.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Category Create/Edit Modal */}
       {showCatModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1560,79 +1239,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                 </button>
                 <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
                   Save Category
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Shipment Lot Create/Edit Modal */}
-      {showCarModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <h3 className="font-bold text-base text-gray-900">
-              {editingCar ? 'Edit Shipment Lot' : 'Add New Shipment Lot'}
-            </h3>
-            <form onSubmit={handleSaveCar} className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Category *</label>
-                <select
-                  value={carCatId}
-                  onChange={(e) => setCarCatId(Number(e.target.value))}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-semibold"
-                >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Lot Name / Code *</label>
-                <input
-                  type="text"
-                  required
-                  value={carName}
-                  onChange={(e) => setCarName(e.target.value)}
-                  placeholder="e.g. Lot 15"
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Arrival Date</label>
-                <input
-                  type="date"
-                  value={carArrivalDate}
-                  onChange={(e) => setCarArrivalDate(e.target.value)}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Description / Notes</label>
-                <input
-                  type="text"
-                  value={carDesc}
-                  onChange={(e) => setCarDesc(e.target.value)}
-                  placeholder="Lot details..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCarModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
-                  Save Shipment Lot
                 </button>
               </div>
             </form>
@@ -2257,12 +1863,12 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               <h3 className="font-black text-base text-gray-900 flex items-center gap-2">
                 <Upload className="w-5 h-5 text-indigo-600" />
                 Bulk Upload:{' '}
-                {activeTab === 'lots'
-                  ? 'Shipment Lots'
-                  : activeTab === 'categories'
+                {activeTab === 'categories'
                   ? 'Categories'
                   : activeTab === 'groups'
                   ? 'Item Groups'
+                  : activeTab === 'brands'
+                  ? 'Brands'
                   : 'Item Definitions'}
               </h3>
               <button
@@ -2276,23 +1882,18 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
             <div className="space-y-3 text-xs text-gray-600">
               <p>
                 Upload an Excel sheet (<strong>.xlsx</strong>, <strong>.xls</strong>) or <strong>.csv</strong> file containing your{' '}
-                {activeTab === 'lots'
-                  ? 'shipment lots'
-                  : activeTab === 'categories'
+                {activeTab === 'categories'
                   ? 'categories'
                   : activeTab === 'groups'
                   ? 'item groups'
+                  : activeTab === 'brands'
+                  ? 'brands'
                   : 'item definitions'}{' '}
                 data.
               </p>
 
               <div className="bg-indigo-50/60 p-3 rounded-xl border border-indigo-100 text-indigo-900 space-y-1">
                 <p className="font-bold">Required Header Columns:</p>
-                {activeTab === 'lots' && (
-                  <p className="font-mono text-[11px] text-indigo-700">
-                    Lot Code / Name, Category Name, Arrival Date, Description, Is Active
-                  </p>
-                )}
                 {activeTab === 'categories' && (
                   <p className="font-mono text-[11px] text-indigo-700">
                     Category Name, Description, Is Active

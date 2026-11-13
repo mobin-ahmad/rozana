@@ -1132,42 +1132,15 @@ export function deleteCategory(id: number): { success: boolean; message: string 
 }
 
 export function getSubCategories(): SubCategory[] {
-  return getStoredItem<SubCategory[]>(STORAGE_KEYS.SUB_CATEGORIES, initialSubCategories);
+  return [];
 }
 
 export function saveSubCategory(subCat: Partial<SubCategory> & { category_id: number; name: string }): { success: boolean; message: string } {
-  const subCats = getSubCategories();
-  const currentUser = getCurrentUser();
-  if (subCat.id) {
-    const idx = subCats.findIndex((sc) => sc.id === subCat.id);
-    if (idx === -1) return { success: false, message: 'Subcategory not found' };
-    subCats[idx] = { ...subCats[idx], ...subCat };
-    setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, subCats);
-    logActivity('UPDATE', 'Sub_Categories', subCat.id, `Updated lot ${subCat.name}`);
-    return { success: true, message: 'Shipment Lot updated' };
-  } else {
-    const newSubCat: SubCategory = {
-      id: subCats.length ? Math.max(...subCats.map((sc) => sc.id)) + 1 : 1,
-      category_id: subCat.category_id,
-      name: subCat.name.trim(),
-      arrival_date: subCat.arrival_date || new Date().toISOString().split('T')[0],
-      description: subCat.description || '',
-      is_active: subCat.is_active ?? true,
-      created_by: currentUser.id,
-      created_at: new Date().toISOString(),
-    };
-    subCats.unshift(newSubCat);
-    setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, subCats);
-    logActivity('CREATE', 'Sub_Categories', newSubCat.id, `Created shipment lot ${newSubCat.name}`);
-    return { success: true, message: 'Shipment Lot added successfully' };
-  }
+  return { success: true, message: 'Shipment lots are retired' };
 }
 
 export function deleteSubCategory(id: number): { success: boolean; message: string } {
-  const subCats = getSubCategories().filter((sc) => Number(sc.id) !== Number(id));
-  setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, subCats);
-  logActivity('DELETE', 'Sub_Categories', id, `Deleted shipment lot #${id}`);
-  return { success: true, message: 'Shipment Lot deleted successfully' };
+  return { success: true, message: 'Shipment lot removed' };
 }
 
 // Item Groups

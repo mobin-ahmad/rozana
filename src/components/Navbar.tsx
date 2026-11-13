@@ -1,27 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
-  TreePine,
-  Search,
-  RotateCcw,
-  UserCheck,
-  Menu,
-  Coins,
+  Store as StoreIcon,
   Building2,
-  Plus,
-  Layers,
-  Store,
-  LogOut,
+  MapPin,
   Crown,
-  Database
+  Database,
+  Menu,
+  CheckCircle2
 } from 'lucide-react';
-import { User, UserRole, StoreChain, SystemSettings } from '../types';
+import { User, StoreChain, SystemSettings } from '../types';
 import {
-  getUsers,
   getCurrentUser,
-  setCurrentUser,
-  resetToDemoData,
   getSettings,
-  setActiveDisplayCurrency,
   setActiveBranch,
   getStoreChains,
   getActiveStoreChain,
@@ -30,30 +20,33 @@ import {
   isUserSuperAdmin
 } from '../lib/storage';
 import { databaseService, DbConnectionStatus } from '../lib/databaseService';
-import { RegisterStoreChainModal } from './RegisterStoreChainModal';
 import { DatabaseModal } from './DatabaseModal';
 
 interface NavbarProps {
   currentUser: User;
-  onOpenSearch: () => void;
+  onOpenSearch?: () => void;
   onToggleSidebarMobile: () => void;
   onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
-  onOpenSearch,
   onToggleSidebarMobile,
-  onLogout,
 }) => {
-  const [isRegisterChainModalOpen, setIsRegisterChainModalOpen] = useState(false);
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const [dbStatus, setDbStatus] = useState<DbConnectionStatus>(() => databaseService.getLastStatus());
   const [settings, setSettingsState] = useState<SystemSettings>(() => getSettings());
   const [storeChains, setStoreChainsState] = useState<StoreChain[]>(() => getStoreChains());
   const [activeChain, setActiveChainState] = useState<StoreChain>(() => getActiveStoreChain());
-  const [users, setUsersState] = useState<User[]>(() => getUsers());
-  const [currentUserNavbar, setCurrentUserNavbar] = useState<User>(() => currentUser);
+  const [activeUser, setActiveUser] = useState<User>(() => currentUser);
+  const [currentTime, setCurrentTime] = useState<string>(() => new Date().toLocaleString());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const stationNumber = 'Register #01';
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
 
   useEffect(() => {
     databaseService.checkStatus();
@@ -62,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   useEffect(() => {
-    setCurrentUserNavbar(currentUser);
+    setActiveUser(currentUser);
   }, [currentUser]);
 
   useEffect(() => {
@@ -70,204 +63,122 @@ export const Navbar: React.FC<NavbarProps> = ({
       setSettingsState(getSettings());
       setStoreChainsState(getStoreChains());
       setActiveChainState(getActiveStoreChain());
-      setUsersState(getUsers());
-      setCurrentUserNavbar(getCurrentUser());
+      setActiveUser(getCurrentUser());
     });
     return unsub;
   }, []);
 
-  const isSuperAdmin = isUserSuperAdmin(currentUserNavbar);
-  const visibleOperators = isSuperAdmin
-    ? users
-    : users.filter(
-        (u) =>
-          u &&
-          (u.username || '').toLowerCase() !== 'mobin' &&
-          !u.is_super_admin &&
-          !(u.designation && u.designation.toLowerCase().includes('super admin'))
-      );
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleString());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const activeCurrencyCode = settings.active_display_currency || settings.base_currency || 'PKR';
-  const availableCurrencies = (settings.currencies || []).filter((c) => c.is_active);
-  const branches = settings.branches || [];
-  const activeBranchId = settings.active_branch_id || (branches[0] && branches[0].id) || '';
+  const isSuperAdmin = isUserSuperAdmin(activeUser);
+  const isStoreAdmin = !isSuperAdmin && (activeUser.role === 'admin' || activeUser.role === 'manager');
 
-  const handleRoleSwitch = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedId = Number(e.target.value);
-    const selected = users.find((u) => u.id === selectedId);
-    if (selected) {
-      setCurrentUser(selected);
-      setCurrentUserNavbar(selected);
-    }
-  };
+  const businessName = activeChain.name || settings.business_name || 'Askari Departmental Store Chain';
+  const branchName = settings.branch_name || (settings.branches && settings.branches[0]?.name) || 'Main Branch';
+  const branchAddress = settings.business_address || (settings.branches && settings.branches[0]?.address) || activeChain.address || '';
+  const branches = settings.branches && settings.branches.length > 0
+    ? settings.branches
+    : [{ id: 'br-1', name: branchName, address: branchAddress, code: '01' }];
 
-  const handleCurrencyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const code = e.target.value;
-    setActiveDisplayCurrency(code);
-    setSettingsState(getSettings());
-  };
-
-  const handleBranchChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const branchId = e.target.value;
-    setActiveBranch(branchId);
-    setSettingsState(getSettings());
-  };
-
-  const handleChainChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleSwitchBusiness = (chainId: string) => {
     if (!isSuperAdmin) {
       alert('Access Restricted: Only Global Super Administrator can switch store organizations.');
       return;
     }
-    const val = e.target.value;
-    if (val === '__REGISTER_NEW__') {
-      setIsRegisterChainModalOpen(true);
-    } else if (val && val !== activeChain.id) {
-      setActiveStoreChain(val);
-      const updatedChain = getActiveStoreChain();
+    setActiveStoreChain(chainId);
+    const updatedChain = getActiveStoreChain();
+    const updatedSettings = getSettings();
+    setActiveChainState(updatedChain);
+    setSettingsState(updatedSettings);
+    showToast(`Switched active business to: ${updatedChain.name}`);
+  };
+
+  const handleSwitchBranch = (branchId: string) => {
+    const res = setActiveBranch(branchId);
+    if (res.success) {
       const updatedSettings = getSettings();
-      setActiveChainState(updatedChain);
       setSettingsState(updatedSettings);
-      setUsersState(getUsers());
+      showToast(`Branch switched to: ${updatedSettings.branch_name}`);
     }
   };
-
-  const handleResetData = () => {
-    if (window.confirm('Are you sure you want to reset all system data to initial demo state? All custom changes will be restored to defaults.')) {
-      resetToDemoData();
-      setSettingsState(getSettings());
-      setStoreChainsState(getStoreChains());
-      setActiveChainState(getActiveStoreChain());
-      setUsersState(getUsers());
-      setCurrentUserNavbar(getCurrentUser());
-    }
-  };
-
-  const selectedCurrencyObj = availableCurrencies.find((c) => c.code === activeCurrencyCode);
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-30 shrink-0">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between gap-4">
-        {/* Left: Mobile Menu & Logo */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onToggleSidebarMobile}
-            className="lg:hidden p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-black shadow-sm overflow-hidden">
+    <header className="px-2 sm:px-4 pt-2 sm:pt-4 pb-2 shrink-0 bg-slate-100 z-30">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
+        {/* Main Store & Branch Info Header */}
+        <div className="md:col-span-8 lg:col-span-9 bg-[#0B0F19] text-white rounded-xl p-3 px-4 sm:px-5 border border-slate-800 shadow-sm flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
+          {/* Left Side: Mobile Menu + Store / Business Name */}
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onToggleSidebarMobile}
+              className="lg:hidden p-2 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 shrink-0 cursor-pointer"
+              title="Open Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="w-10 h-10 rounded-xl bg-indigo-600/90 text-white flex items-center justify-center font-black text-sm shrink-0 border border-indigo-400/30 shadow-xs overflow-hidden">
               {settings.logo_url ? (
                 <img src={settings.logo_url} alt="Store Logo" className="w-full h-full object-contain bg-white p-0.5" />
               ) : (
-                <TreePine className="w-5 h-5" />
+                <StoreIcon className="w-5 h-5" />
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg tracking-tight uppercase text-slate-900">
-                  {settings.business_name || 'Lumina Wood POS'}
-                </span>
-                <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                  POS v2.4
-                </span>
+                <h1 className="text-base sm:text-lg lg:text-xl font-black text-white tracking-wide truncate">
+                  {businessName}
+                </h1>
+                {activeChain.code && (
+                  <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 bg-slate-800 text-indigo-300 rounded border border-slate-700 shrink-0">
+                    {activeChain.code}
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] text-slate-400 font-medium hidden sm:block">
-                Timber Inventory & Point of Sale System
-              </p>
             </div>
           </div>
-        </div>
 
-        {/* Middle: Global Search Input */}
-        <div className="flex-1 max-w-md hidden md:block">
-          <button
-            onClick={onOpenSearch}
-            className="w-full flex items-center justify-between pl-10 pr-4 py-2 bg-slate-100 border border-slate-200/80 rounded-lg text-xs text-slate-500 hover:bg-slate-50 transition-all outline-none relative"
-          >
-            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
-              <Search className="w-4 h-4" />
-            </div>
-            <span className="font-medium">Search wood serials, customers, invoices...</span>
-            <kbd className="px-1.5 py-0.5 text-[10px] bg-white text-slate-500 rounded font-mono border border-slate-200 shadow-xs">
-              Ctrl+K
-            </kbd>
-          </button>
-        </div>
-
-        {/* Right: Store Chain Switcher, Branch Selector, Currency Selector, Role Switcher, Reset Demo Data, Operator Profile */}
-        <div className="flex items-center gap-2.5">
-          {/* Mobile Search Button */}
-          <button
-            onClick={onOpenSearch}
-            className="md:hidden p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
-          >
-            <Search className="w-5 h-5" />
-          </button>
-
-          {/* SaaS Store Chain Switcher (Super Admin) or Static Badge (Store Admin) */}
-          {isSuperAdmin ? (
-            <div className="relative flex items-center bg-slate-900 text-white border border-slate-700 rounded-lg px-2 py-1 shadow-2xs">
-              <span className="w-5 h-5 bg-amber-500 text-white rounded flex items-center justify-center font-black text-xs shrink-0 mr-1.5 shadow-2xs">
-                <Crown className="w-3.5 h-3.5" />
-              </span>
-              <div className="flex flex-col">
-                <span className="text-[8px] uppercase tracking-widest font-extrabold text-amber-300 hidden sm:block leading-none mb-0.5">
-                  SaaS Store Chain
-                </span>
+          {/* Middle: Business & Branch Switcher Controls */}
+          {isSuperAdmin && (
+            <div className="flex flex-wrap items-center justify-start xl:justify-center gap-2 bg-slate-900/95 p-1.5 px-3 rounded-xl border border-amber-500/30 shadow-inner">
+              {/* Business Switcher for Super Admin */}
+              <div className="flex items-center gap-1.5">
+                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">Business:</span>
                 <select
                   value={activeChain.id}
-                  onChange={handleChainChange}
-                  className="bg-transparent text-xs font-extrabold text-white focus:outline-none cursor-pointer pr-1 leading-none max-w-[140px] sm:max-w-[170px] truncate"
-                  title="Switch active SaaS store chain organization"
+                  onChange={(e) => handleSwitchBusiness(e.target.value)}
+                  className="bg-slate-800 text-white text-xs font-bold rounded-lg px-2 py-1 border border-slate-700 hover:border-amber-400/60 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer max-w-[160px] sm:max-w-[200px] truncate"
+                  title="Switch Business Profile (Global Super Admin Only)"
                 >
                   {storeChains.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-slate-900 text-white font-semibold">
-                      🏢 {c.name} ({c.code})
+                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                      {c.name} {c.code ? `(${c.code})` : ''}
                     </option>
                   ))}
-                  <option value="__REGISTER_NEW__" className="bg-indigo-950 text-indigo-200 font-bold">
-                    ➕ Register New Store Chain...
-                  </option>
                 </select>
               </div>
-            </div>
-          ) : (
-            <div className="flex items-center bg-slate-900 text-white border border-slate-700 rounded-lg px-2.5 py-1 shadow-2xs">
-              <span className="w-5 h-5 bg-indigo-600 text-white rounded flex items-center justify-center font-black text-xs shrink-0 mr-1.5 shadow-2xs">
-                <Store className="w-3.5 h-3.5" />
-              </span>
-              <div className="flex flex-col">
-                <span className="text-[8px] uppercase tracking-wider font-extrabold text-indigo-300 hidden sm:block leading-none mb-0.5">
-                  Store Chain
-                </span>
-                <span className="text-xs font-extrabold text-white max-w-[140px] sm:max-w-[170px] truncate leading-none">
-                  {activeChain.name}
-                </span>
-              </div>
-            </div>
-          )}
 
-          {/* Active Store Branch Dropdown Switcher */}
-          {branches.length > 0 && (
-            <div className="relative flex items-center bg-indigo-50/80 border border-indigo-200 rounded-lg px-2 py-1 shadow-2xs">
-              <span className="w-5 h-5 bg-indigo-600 text-white rounded flex items-center justify-center font-black text-xs shrink-0 mr-1.5 shadow-2xs">
-                <Building2 className="w-3.5 h-3.5" />
-              </span>
-              <div className="flex flex-col">
-                <span className="text-[8px] uppercase tracking-wider font-extrabold text-indigo-700 hidden sm:block leading-none mb-0.5">
-                  Store Branch
-                </span>
+              <div className="h-4 w-px bg-slate-700 hidden sm:block" />
+
+              {/* Branch Switcher for Super Admin */}
+              <div className="flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="text-[10px] font-black uppercase text-slate-300 tracking-wider">Branch:</span>
                 <select
-                  value={activeBranchId}
-                  onChange={handleBranchChange}
-                  className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer pr-1 leading-none max-w-[150px] sm:max-w-[180px] truncate"
-                  title="Switch active store branch"
+                  value={settings.active_branch_id || branches[0]?.id}
+                  onChange={(e) => handleSwitchBranch(e.target.value)}
+                  className="bg-slate-800 text-white text-xs font-bold rounded-lg px-2 py-1 border border-slate-700 hover:border-indigo-400/60 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer max-w-[140px] sm:max-w-[180px] truncate"
+                  title="Switch Branch"
                 >
                   {branches.map((b) => (
-                    <option key={b.id} value={b.id} className="bg-white text-slate-900 font-medium">
-                      {b.name} ({b.city || b.country || 'Branch'})
+                    <option key={b.id} value={b.id} className="bg-slate-900 text-white">
+                      {b.name} {b.code ? `[${b.code}]` : ''}
                     </option>
                   ))}
                 </select>
@@ -275,136 +186,89 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          {/* Multi-Currency Dropdown Switcher */}
-          <div className="relative flex items-center bg-emerald-50/80 border border-emerald-200 rounded-lg px-2 py-1 shadow-2xs">
-            <span className="w-5 h-5 bg-emerald-600 text-white rounded flex items-center justify-center font-black text-xs shrink-0 mr-1.5 shadow-2xs">
-              {selectedCurrencyObj?.symbol || settings.currency_symbol || 'Rs.'}
-            </span>
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase tracking-wider font-extrabold text-emerald-700 hidden sm:block leading-none mb-0.5">
-                Currency
-              </span>
+          {isStoreAdmin && (
+            <div className="flex items-center justify-start xl:justify-center gap-2 bg-slate-900/95 p-1.5 px-3 rounded-xl border border-indigo-500/30 shadow-inner">
+              <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="text-[10px] font-black uppercase text-indigo-300 tracking-wider">Switch Branch:</span>
               <select
-                value={activeCurrencyCode}
-                onChange={handleCurrencyChange}
-                className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer pr-2 leading-none"
-                title="Switch active viewing currency"
+                value={settings.active_branch_id || branches[0]?.id}
+                onChange={(e) => handleSwitchBranch(e.target.value)}
+                className="bg-slate-800 text-white text-xs font-bold rounded-lg px-2.5 py-1 border border-slate-700 hover:border-indigo-400/60 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer max-w-[180px] sm:max-w-[220px] truncate"
+                title="Switch Store Branch"
               >
-                {availableCurrencies.map((c) => (
-                  <option key={c.code} value={c.code} className="bg-white text-slate-900 font-medium">
-                    {c.symbol} {c.code} - {c.name}
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id} className="bg-slate-900 text-white">
+                    {b.name} {b.code ? `[${b.code}]` : ''}
                   </option>
                 ))}
               </select>
             </div>
-          </div>
+          )}
 
-          {/* Switch User Demo Role Selector */}
-          <div className="relative flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1">
-            <UserCheck className="w-3.5 h-3.5 text-indigo-600 mr-2 shrink-0 hidden sm:inline" />
-            <div className="flex flex-col">
-              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400 hidden sm:block">
-                Operator
-              </span>
-              <select
-                value={currentUser?.id}
-                onChange={handleRoleSwitch}
-                className="bg-transparent text-xs font-semibold text-slate-900 focus:outline-none cursor-pointer pr-4"
-              >
-                {visibleOperators.map((u) => (
-                  <option key={u.id} value={u.id} className="bg-white text-slate-900">
-                    {u.full_name || 'User'} ({(u.role || 'staff').replace('_', ' ').toUpperCase()})
-                  </option>
-                ))}
-              </select>
+          {/* Right Side: Branch Name and Address */}
+          <div className="text-left xl:text-right min-w-0">
+            <div className="text-xs sm:text-sm font-extrabold text-slate-100 flex items-center xl:justify-end gap-1.5 truncate">
+              <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span>{branchName}</span>
             </div>
+            {branchAddress && (
+              <div className="text-[10px] sm:text-[11px] text-slate-400 flex items-center xl:justify-end gap-1 mt-0.5 truncate">
+                <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
+                <span>{branchAddress}</span>
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* PostgreSQL rozana:5432 Database Badge */}
+        {/* Register & Operator Controls */}
+        <div className="md:col-span-4 lg:col-span-3 bg-[#0B0F19] text-white rounded-xl p-3 px-4 border border-slate-800 shadow-sm flex items-center justify-between gap-3">
+          {/* PostgreSQL rozana:5432 Status Badge */}
           <button
+            type="button"
             onClick={() => setIsDbModalOpen(true)}
-            title={`PostgreSQL Database Connection (Target: ${dbStatus.database || 'rozana'}:${dbStatus.port || 5432})`}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition shadow-2xs cursor-pointer ${
+            title={`PostgreSQL Database: ${dbStatus.database || 'rozana'} on port ${dbStatus.port || 5432}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-mono font-bold transition cursor-pointer shadow-xs ${
               dbStatus.connected
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                ? 'bg-emerald-950/80 text-emerald-400 border-emerald-700/60 hover:bg-emerald-900/60'
+                : 'bg-amber-950/80 text-amber-400 border-amber-700/60 hover:bg-amber-900/60'
             }`}
           >
-            <Database className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden md:inline font-mono text-[11px] font-bold">
-              {dbStatus.database || 'rozana'}:{dbStatus.port || 5432}
-            </span>
+            <Database className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="truncate max-w-[100px] sm:max-w-none">{dbStatus.database || 'rozana'}:{dbStatus.port || 5432}</span>
             <span
-              className={`w-2 h-2 rounded-full ${
-                dbStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                dbStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
               }`}
             />
           </button>
 
-          {/* Reset Demo Data Button - Super Admin Only */}
-          {isSuperAdmin && (
-            <button
-              onClick={handleResetData}
-              title="Reset to initial demo data"
-              className="p-2 text-slate-400 hover:text-amber-600 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* User Profile Avatar & Logout */}
-          <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
-            <div className="hidden lg:flex items-center gap-2.5">
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
-                (currentUser?.username || '').toLowerCase() === 'mobin' || currentUser?.is_super_admin
-                  ? 'bg-gradient-to-tr from-amber-600 to-amber-400 text-white border-2 border-amber-300 shadow-xs'
-                  : 'bg-indigo-50 text-indigo-600 border border-indigo-200'
-              }`}>
-                {(currentUser?.username || '').toLowerCase() === 'mobin' || currentUser?.is_super_admin ? '👑' : (currentUser?.full_name || 'U').charAt(0)}
-              </div>
-              <div className="text-left">
-                <div className="text-[9px] font-bold uppercase tracking-wider flex items-center gap-1">
-                  {(currentUser?.username || '').toLowerCase() === 'mobin' || currentUser?.is_super_admin ? (
-                    <span className="text-amber-600 font-black">Global Super Admin</span>
-                  ) : (
-                    <span className="text-slate-400">Operator</span>
-                  )}
-                </div>
-                <p className="text-xs font-semibold text-slate-900 leading-tight">
-                  {currentUser?.full_name || 'Logged In User'}
-                </p>
-              </div>
+          <div className="text-right text-xs shrink-0">
+            <div className="font-bold text-slate-100 text-[11px] tracking-tight flex items-center justify-end gap-2">
+              <span className="px-1.5 py-0.5 bg-indigo-950 text-indigo-300 text-[9px] font-mono font-bold rounded border border-indigo-800/60">
+                {stationNumber}
+              </span>
+              <span className="truncate max-w-[110px] sm:max-w-none">{activeUser?.full_name || 'User'}</span>
             </div>
-
-            {onLogout && (
-              <button
-                type="button"
-                onClick={onLogout}
-                title="Sign Out of POS System"
-                className="p-2 text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-rose-200/80 flex items-center gap-1 text-xs font-bold shrink-0 ml-1 cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden xl:inline">Sign Out</span>
-              </button>
-            )}
+            <div className="text-[10px] text-slate-400 font-mono mt-0.5 text-right">
+              {currentTime}
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Register Store Chain Modal */}
-      <RegisterStoreChainModal
-        isOpen={isRegisterChainModalOpen}
-        onClose={() => setIsRegisterChainModalOpen(false)}
-        onChainRegistered={() => {
-          window.location.reload();
-        }}
-      />
 
       {/* PostgreSQL Database Connection Modal */}
       <DatabaseModal
         isOpen={isDbModalOpen}
         onClose={() => setIsDbModalOpen(false)}
       />
+
+      {/* Toast Popup Feedback */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-2 animate-in slide-in-from-bottom duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </header>
   );
 };

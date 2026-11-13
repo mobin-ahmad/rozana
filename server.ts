@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import pkg from 'pg';
 const { Pool } = pkg;
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -11,7 +12,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+// Port 3000 is required by AI Studio dev environment constraints
+const PORT = 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
 app.use(express.json({ limit: '25mb' }));
@@ -31,11 +33,7 @@ let currentConfig = {
   max: 10,
 };
 
-let pool: pkg.Pool = new Pool(
-  process.env.DATABASE_URL
-    ? { connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3000 }
-    : currentConfig
-);
+let pool: pkg.Pool = new Pool(currentConfig);
 
 // Graceful pool error handling (prevents unhandled crash on disconnect)
 pool.on('error', (err: Error) => {
@@ -298,10 +296,31 @@ async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        watch: null,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // Serve index.html transformed by Vite for all non-API SPA routes
+    app.use('*', async (req: Request, res: Response, next) => {
+      if (req.originalUrl.startsWith('/api')) {
+        return next();
+      }
+      try {
+        const url = req.originalUrl;
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: unknown) {
+        const err = e as Error;
+        vite.ssrFixStacktrace(err);
+        next(err);
+      }
+    });
   } else {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req: Request, res: Response) => {

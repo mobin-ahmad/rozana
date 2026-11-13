@@ -225,13 +225,7 @@ export const initialCategories: Category[] = [
   { id: 5, item_group_id: 2, name: 'Furniture Grade', description: 'Premium hardwoods for furniture making', is_active: false, created_by: 1, created_at: dateAgo(40) },
 ];
 
-export const initialSubCategories: SubCategory[] = [
-  { id: 1, category_id: 1, name: 'Car 1', arrival_date: '2026-04-10', description: 'First raw wood shipment lot', is_active: true, created_by: 1, created_at: dateAgo(80) },
-  { id: 2, category_id: 1, name: 'Car 5', arrival_date: '2026-04-15', description: 'Second batch raw teak & pine', is_active: true, created_by: 1, created_at: dateAgo(75) },
-  { id: 3, category_id: 2, name: 'Car 7', arrival_date: '2026-04-18', description: 'Processed sawn wood delivery', is_active: true, created_by: 2, created_at: dateAgo(60) },
-  { id: 4, category_id: 3, name: 'Car 3', arrival_date: '2026-04-20', description: 'Plywood sheets lot', is_active: true, created_by: 1, created_at: dateAgo(40) },
-  { id: 5, category_id: 4, name: 'Car 12', arrival_date: '2026-04-22', description: 'Structural beams delivery', is_active: true, created_by: 2, created_at: dateAgo(20) },
-];
+export const initialSubCategories: SubCategory[] = [];
 
 export const initialItemGroups: ItemGroup[] = [
   { id: 1, group_id: 'GRP-001', group_description: 'Raw Logs & Unprocessed Timber', is_active: true, created_by: 1, created_at: dateAgo(90) },
@@ -326,19 +320,7 @@ export const initialCustomers: Customer[] = [
   { id: 4, name: 'Walk-in Customer', phone: '03000000000', address: 'Direct Store Visit', total_purchase: 45000, total_paid: 45000, total_due: 0, loyalty_points: 0, qr_code: 'CUST-WALKIN', custom_redemption_rate: null, is_active: true, created_by: 1, created_at: dateAgo(90) },
 ];
 
-// Helper to calc cft
-const cft = (w: number, l: number) => Math.round(((w * w * l) / 2304) * 10000) / 10000;
-
-export const initialWoodStocks: WoodStock[] = [
-  { id: 1, serial: 'W-001', sub_category_id: 1, purchase_id: 1, width: 12, length: 8, cft: cft(12, 8), qty: 1, buy_rate: 1600, buy_price: Math.round(cft(12, 8) * 1600), sell_rate: 16500, sell_price: Math.round(cft(12, 8) * 16500), status: 'available', created_by: 1, created_at: dateAgo(30) },
-  { id: 2, serial: 'W-002', sub_category_id: 1, purchase_id: 1, width: 14, length: 10, cft: cft(14, 10), qty: 2, buy_rate: 1600, buy_price: Math.round(cft(14, 10) * 2 * 1600), sell_rate: 16500, sell_price: Math.round(cft(14, 10) * 2 * 16500), status: 'available', created_by: 1, created_at: dateAgo(28) },
-  { id: 3, serial: 'W-003', sub_category_id: 2, purchase_id: 2, width: 10, length: 6, cft: cft(10, 6), qty: 1, buy_rate: 1600, buy_price: Math.round(cft(10, 6) * 1600), sell_rate: 16500, sell_price: Math.round(cft(10, 6) * 16500), status: 'available', created_by: 1, created_at: dateAgo(25) },
-  { id: 4, serial: 'W-004', sub_category_id: 2, purchase_id: 2, width: 16, length: 12, cft: cft(16, 12), qty: 1, buy_rate: 1600, buy_price: Math.round(cft(16, 12) * 1600), sell_rate: 16500, sell_price: Math.round(cft(16, 12) * 16500), status: 'sold', created_by: 1, created_at: dateAgo(20) },
-  { id: 5, serial: 'W-005', sub_category_id: 3, purchase_id: 3, width: 11, length: 9, cft: cft(11, 9), qty: 3, buy_rate: 1500, buy_price: Math.round(cft(11, 9) * 3 * 1500), sell_rate: 16500, sell_price: Math.round(cft(11, 9) * 3 * 16500), status: 'available', created_by: 2, created_at: dateAgo(15) },
-  { id: 6, serial: 'W-006', sub_category_id: 3, purchase_id: 3, width: 13, length: 7, cft: cft(13, 7), qty: 1, buy_rate: 1500, buy_price: Math.round(cft(13, 7) * 1500), sell_rate: 16500, sell_price: Math.round(cft(13, 7) * 16500), status: 'reserved', created_by: 2, created_at: dateAgo(10) },
-  { id: 7, serial: 'W-007', sub_category_id: 4, purchase_id: null, width: 15, length: 11, cft: cft(15, 11), qty: 1, buy_rate: 1600, buy_price: Math.round(cft(15, 11) * 1600), sell_rate: 16500, sell_price: Math.round(cft(15, 11) * 16500), status: 'available', created_by: 1, created_at: dateAgo(5) },
-  { id: 8, serial: 'W-008', sub_category_id: 1, purchase_id: 1, width: 9, length: 5, cft: cft(9, 5), qty: 1, buy_rate: 1600, buy_price: Math.round(cft(9, 5) * 1600), sell_rate: 16500, sell_price: Math.round(cft(9, 5) * 16500), status: 'damaged', notes: 'Surface crack detected', created_by: 1, created_at: dateAgo(2) },
-];
+export const initialWoodStocks: WoodStock[] = [];
 
 export const initialPurchases: Purchase[] = [
   { id: 1, purchase_no: 'PUR-20260410-001', supplier_id: 1, sub_category_id: 1, total_pieces: 4, total_cft: 2.85, rate_per_cft: 1600, total_amount: 4560, paid_amount: 3000, due_amount: 1560, purchase_date: '2026-04-10', notes: 'First raw shipment purchase', status: 'pending', created_by: 1, created_at: dateAgo(80) },
