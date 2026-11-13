@@ -329,12 +329,12 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Z-POS Server] Listening on http://0.0.0.0:${PORT}`);
+    console.log(`[rozana Server] Listening on http://0.0.0.0:${PORT}`);
     console.log(`[PostgreSQL Target] Host: ${currentConfig.host}:${currentConfig.port} | Database: "${currentConfig.database}"`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('[Z-POS Server Fatal Error]', err);
+  console.error('[rozana Server Fatal Error]', err);
   process.exit(1);
 });

@@ -61,6 +61,8 @@ export const Customers: React.FC<CustomersProps> = ({ userRole }) => {
   const [payMethod, setPayMethod] = useState('cash');
   const [payRef, setPayRef] = useState('');
 
+  const [statusFilter, setStatusFilter] = useState<'all' | 'due' | 'credit' | 'paid' | 'loyalty'>('all');
+
   const isEditable = userRole === 'admin' || userRole === 'manager' || userRole === 'cashier';
 
   const handleOpenModal = (cust?: Customer) => {
@@ -136,11 +138,40 @@ export const Customers: React.FC<CustomersProps> = ({ userRole }) => {
     }
   };
 
-  const filteredCustomers = customers.filter(
-    (c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery) ||
-      (c.qr_code && c.qr_code.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filterCounts = {
+    all: customers.length,
+    due: customers.filter((c) => c.total_due > 0).length,
+    credit: customers.filter((c) => c.total_due < 0).length,
+    paid: customers.filter((c) => c.total_due === 0).length,
+    loyalty: customers.filter((c) => (c.loyalty_points || 0) > 0).length,
+  };
+
+  const filteredCustomers = customers.filter((c) => {
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      c.name.toLowerCase().includes(q) ||
+      (c.phone && c.phone.toLowerCase().includes(q)) ||
+      (c.address && c.address.toLowerCase().includes(q)) ||
+      (c.qr_code && c.qr_code.toLowerCase().includes(q));
+
+    if (!matchesSearch) return false;
+
+    if (statusFilter === 'due') return c.total_due > 0;
+    if (statusFilter === 'credit') return c.total_due < 0;
+    if (statusFilter === 'paid') return c.total_due === 0;
+    if (statusFilter === 'loyalty') return (c.loyalty_points || 0) > 0;
+    return true;
+  });
+
+  const gridTotals = filteredCustomers.reduce(
+    (acc, c) => ({
+      points: acc.points + (c.loyalty_points || 0),
+      purchased: acc.purchased + c.total_purchase,
+      paid: acc.paid + c.total_paid,
+      due: acc.due + c.total_due,
+    }),
+    { points: 0, purchased: 0, paid: 0, due: 0 }
   );
 
   const customerInvoices = selectedCustomer
@@ -167,122 +198,250 @@ export const Customers: React.FC<CustomersProps> = ({ userRole }) => {
         {isEditable && (
           <button
             onClick={() => handleOpenModal()}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Add Customer
           </button>
         )}
       </div>
 
-      {/* Search Input */}
-      <div className="relative max-w-md">
-        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by customer name, phone, or QR code..."
-          className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl text-xs outline-none focus:border-emerald-500 shadow-xs"
-        />
+      {/* Search Bar & Right-Aligned Filters */}
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="relative flex-1 lg:max-w-sm">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by customer name, phone, or QR code..."
+            className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-emerald-500"
+          />
+        </div>
+
+        {/* Right-Aligned Filter Buttons */}
+        <div className="flex flex-wrap items-center justify-start lg:justify-end gap-1.5 bg-gray-100 p-1 rounded-xl text-xs font-bold text-gray-600">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              statusFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'hover:text-gray-900'
+            }`}
+          >
+            All ({filterCounts.all})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('due')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              statusFilter === 'due' ? 'bg-white text-rose-700 shadow-sm' : 'hover:text-gray-900'
+            }`}
+          >
+            Receivable Due ({filterCounts.due})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('credit')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              statusFilter === 'credit' ? 'bg-white text-indigo-700 shadow-sm' : 'hover:text-gray-900'
+            }`}
+          >
+            Advance Credit ({filterCounts.credit})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('paid')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              statusFilter === 'paid' ? 'bg-white text-emerald-700 shadow-sm' : 'hover:text-gray-900'
+            }`}
+          >
+            Paid in Full ({filterCounts.paid})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('loyalty')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              statusFilter === 'loyalty' ? 'bg-white text-amber-700 shadow-sm' : 'hover:text-gray-900'
+            }`}
+          >
+            Loyalty Holders ({filterCounts.loyalty})
+          </button>
+        </div>
       </div>
 
-      {/* Customers Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredCustomers.map((cust) => (
-          <div
-            key={cust.id}
-            className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all space-y-3 flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="font-bold text-sm text-gray-900">{cust.name}</h3>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-900 text-[10px] font-black rounded-full flex items-center gap-1">
-                      <Award className="w-3 h-3 text-amber-600" /> {cust.loyalty_points || 0} Loyalty Pts
-                    </span>
-                    {cust.custom_redemption_rate && (
-                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-bold rounded border border-indigo-200">
-                        Custom Formula: {settings.currency_symbol}{cust.custom_redemption_rate}/pt
-                      </span>
-                    )}
-                    {cust.custom_scan_behavior && (
-                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[9px] font-bold rounded border border-slate-200">
-                        Scan: {cust.custom_scan_behavior === 'increase_qty' ? 'Increase Qty' : 'New Line'}
-                      </span>
-                    )}
-                  </div>
-                </div>
+      {/* Customers & Loyalty Accounts Data Grid */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 font-bold text-gray-700 uppercase text-[10px]">
+                <th className="p-3.5">Customer / Account</th>
+                <th className="p-3.5">Contact & Address</th>
+                <th className="p-3.5">QR Card ID</th>
+                <th className="p-3.5 text-center">Loyalty Pts</th>
+                <th className="p-3.5 text-right">Total Purchased</th>
+                <th className="p-3.5 text-right">Total Paid</th>
+                <th className="p-3.5 text-right">Balance / Due</th>
+                <th className="p-3.5 text-center">Status</th>
+                <th className="p-3.5 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-10 text-center text-gray-400 font-semibold">
+                    No customer accounts match your search or filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                filteredCustomers.map((cust) => {
+                  const qrValue = cust.qr_code || `CUST-${cust.phone || cust.id}`;
+                  return (
+                    <tr key={cust.id} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="p-3.5">
+                        <div className="font-bold text-gray-900">{cust.name}</div>
+                        {(cust.custom_redemption_rate || cust.custom_scan_behavior) && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {cust.custom_redemption_rate && (
+                              <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-bold rounded border border-indigo-200">
+                                Formula: {settings.currency_symbol}{cust.custom_redemption_rate}/pt
+                              </span>
+                            )}
+                            {cust.custom_scan_behavior && (
+                              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[9px] font-bold rounded border border-slate-200">
+                                Scan: {cust.custom_scan_behavior === 'increase_qty' ? 'Inc Qty' : 'New Line'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3.5 text-gray-600">
+                        {cust.phone && (
+                          <div className="font-mono text-[11px] flex items-center gap-1 text-gray-800">
+                            <Phone className="w-3 h-3 text-gray-400 shrink-0" />
+                            <span>{cust.phone}</span>
+                          </div>
+                        )}
+                        {cust.address && (
+                          <div className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5 max-w-[220px] truncate" title={cust.address}>
+                            <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
+                            <span className="truncate">{cust.address}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3.5">
+                        <button
+                          type="button"
+                          onClick={() => setViewQrCustomer(cust)}
+                          title="View Customer QR Code Card"
+                          className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 rounded-lg font-mono text-[11px] cursor-pointer transition-colors"
+                        >
+                          <QrCode className="w-3.5 h-3.5 shrink-0" />
+                          <span>{qrValue}</span>
+                        </button>
+                      </td>
+                      <td className="p-3.5 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-100 text-amber-900 text-[11px] font-black rounded-full">
+                          <Award className="w-3 h-3 text-amber-600" />
+                          {cust.loyalty_points || 0}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right font-mono font-bold text-gray-900">
+                        {formatCurrency(cust.total_purchase, settings.currency_symbol)}
+                      </td>
+                      <td className="p-3.5 text-right font-mono font-bold text-emerald-600">
+                        {formatCurrency(cust.total_paid, settings.currency_symbol)}
+                      </td>
+                      <td
+                        className={`p-3.5 text-right font-mono font-extrabold ${
+                          cust.total_due > 0
+                            ? 'text-rose-600'
+                            : cust.total_due < 0
+                            ? 'text-indigo-600'
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        {formatCurrency(cust.total_due, settings.currency_symbol)}
+                      </td>
+                      <td className="p-3.5 text-center">
+                        {cust.total_due > 0 ? (
+                          <span className="inline-block text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-800">
+                            Receivable Due
+                          </span>
+                        ) : cust.total_due < 0 ? (
+                          <span className="inline-block text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                            Advance Credit
+                          </span>
+                        ) : (
+                          <span className="inline-block text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                            Paid in Full
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3.5 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCustomer(cust)}
+                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
+                            title="View Customer Ledger"
+                          >
+                            <FileText className="w-3.5 h-3.5" /> Ledger
+                          </button>
 
-                <button
-                  type="button"
-                  onClick={() => setViewQrCustomer(cust)}
-                  title="View Customer QR Code Card"
-                  className="p-2 bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 rounded-xl border border-slate-200/80 transition-colors shrink-0"
-                >
-                  <QrCode className="w-4 h-4" />
-                </button>
-              </div>
+                          {cust.total_due > 0 && isEditable && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCustomer(cust);
+                                setPayAmount(cust.total_due);
+                                setShowPayModal(true);
+                              }}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg border border-rose-200 flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Receive Customer Payment"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" /> Receive
+                            </button>
+                          )}
 
-              <div className="space-y-1 text-xs text-gray-500 mt-3">
-                {cust.phone && (
-                  <p className="flex items-center gap-1.5 font-mono">
-                    <Phone className="w-3.5 h-3.5 text-gray-400" /> {cust.phone}
-                  </p>
-                )}
-                {cust.address && (
-                  <p className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-gray-400" /> {cust.address}
-                  </p>
-                )}
-                <p className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
-                  <QrCode className="w-3 h-3 text-slate-400" /> QR Code ID: {cust.qr_code || `CUST-${cust.phone || cust.id}`}
-                </p>
-              </div>
-
-              {/* Financial Summary Box */}
-              <div className="mt-3 p-3 bg-gray-50 rounded-xl space-y-1.5 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Total Purchased:</span>
-                  <span className="font-bold text-gray-900">
-                    {formatCurrency(cust.total_purchase, settings.currency_symbol)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Total Paid:</span>
-                  <span className="font-bold text-emerald-600">
-                    {formatCurrency(cust.total_paid, settings.currency_symbol)}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-gray-200 pt-1.5 font-bold">
-                  <span className="text-gray-700">Outstanding Due:</span>
-                  <span className={cust.total_due > 0 ? 'text-rose-600' : 'text-gray-900'}>
-                    {formatCurrency(cust.total_due, settings.currency_symbol)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-between border-t border-gray-100 pt-3 text-xs">
-              <button
-                onClick={() => setSelectedCustomer(cust)}
-                className="text-emerald-600 font-bold hover:underline flex items-center gap-1"
-              >
-                <FileText className="w-3.5 h-3.5" /> View Ledger
-              </button>
-
-              {isEditable && (
-                <button
-                  onClick={() => handleOpenModal(cust)}
-                  className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-gray-100 rounded-lg flex items-center gap-1"
-                >
-                  <Edit2 className="w-3.5 h-3.5" /> Edit
-                </button>
+                          {isEditable && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenModal(cust)}
+                              className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors"
+                              title="Edit Customer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
-            </div>
-          </div>
-        ))}
+            </tbody>
+            {filteredCustomers.length > 0 && (
+              <tfoot>
+                <tr className="bg-gray-50 border-t border-gray-200 font-bold text-gray-900">
+                  <td colSpan={3} className="p-3.5 text-right uppercase text-[10px] tracking-wider text-gray-500">
+                    Totals ({filteredCustomers.length} accounts)
+                  </td>
+                  <td className="p-3.5 text-center font-mono text-amber-800">{gridTotals.points} Pts</td>
+                  <td className="p-3.5 text-right font-mono">{formatCurrency(gridTotals.purchased, settings.currency_symbol)}</td>
+                  <td className="p-3.5 text-right font-mono text-emerald-700">{formatCurrency(gridTotals.paid, settings.currency_symbol)}</td>
+                  <td
+                    className={`p-3.5 text-right font-mono ${
+                      gridTotals.due > 0 ? 'text-rose-700' : gridTotals.due < 0 ? 'text-indigo-700' : 'text-gray-800'
+                    }`}
+                  >
+                    {formatCurrency(gridTotals.due, settings.currency_symbol)}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       </div>
 
       {/* Customer Ledger Drawer */}
@@ -495,7 +654,7 @@ export const Customers: React.FC<CustomersProps> = ({ userRole }) => {
                   <option value="new_line">Option B: Add as New Line Item</option>
                 </select>
                 <p className="text-[10px] text-gray-400 mt-1">
-                  Controls how Z-POS handles scanning duplicate items for this customer.
+                  Controls how rozana handles scanning duplicate items for this customer.
                 </p>
               </div>
 

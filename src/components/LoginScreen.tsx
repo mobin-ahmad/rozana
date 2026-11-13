@@ -115,12 +115,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       <header className="relative z-10 w-full max-w-7xl mx-auto px-6 py-4 flex items-center justify-between border-b border-slate-800/60">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
-            Z
+            R
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-extrabold tracking-tight text-white leading-none">
-                RetailZ POS
+                rozana
               </h1>
               <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold rounded-md uppercase tracking-wider">
                 Enterprise v4.2
@@ -197,7 +197,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               <div className="space-y-2.5 pt-2">
                 <div className="flex items-center gap-2 text-xs text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Sub-second Z-POS Barcode Checkout</span>
+                  <span>Sub-second rozana Barcode Checkout</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -411,7 +411,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       {/* Footer */}
       <footer className="relative z-10 w-full max-w-7xl mx-auto px-6 py-4 text-center text-[11px] text-slate-500 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-2">
         <div>
-          &copy; {new Date().getFullYear()} RetailZ POS Enterprise. All rights reserved.
+          &copy; {new Date().getFullYear()} rozana Enterprise. All rights reserved.
         </div>
         <div className="flex items-center gap-4">
           <span className="hover:underline cursor-pointer">Privacy Policy</span>

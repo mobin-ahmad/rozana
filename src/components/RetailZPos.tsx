@@ -220,7 +220,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
   const [authError, setAuthError] = useState('');
 
   // 5. Order Management & Logistics State
-  const [transactionId] = useState<string>(`ZPOS-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [transactionId] = useState<string>(`ROZANA-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
   const [fulfillmentType, setFulfillmentType] = useState<'carry_out' | 'ship_to_home' | 'bopis'>('carry_out');
   const [shippingAddress, setShippingAddress] = useState('');
   const [pickupStation, setPickupStation] = useState('Locker #04 - Front Register');
@@ -456,7 +456,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
 
       if (pendingAuthAction.type === 'delete') {
         setCart((prev) => prev.filter((item) => item.id !== pendingAuthAction.rowId));
-        logActivity('DELETE', 'ZPOS_GRID', pendingAuthAction.rowId, `Deleted item from Z-POS grid by supervisor approval`);
+        logActivity('DELETE', 'ROZANA_GRID', pendingAuthAction.rowId, `Deleted item from rozana grid by supervisor approval`);
       } else if (pendingAuthAction.type === 'edit') {
         setCart((prev) =>
           prev.map((item) => {
@@ -473,7 +473,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
             return item;
           })
         );
-        logActivity('UPDATE', 'ZPOS_GRID', pendingAuthAction.rowId, `Updated item in Z-POS grid by supervisor approval`);
+        logActivity('UPDATE', 'ROZANA_GRID', pendingAuthAction.rowId, `Updated item in rozana grid by supervisor approval`);
       }
 
       setAuthModalOpen(false);
@@ -558,11 +558,11 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
       points_earned: currentSalePointsToEarn,
       points_redeemed: validPointsToRedeem,
       points_discount_amount: pointsDiscountAmount,
-      notes: `Z-POS Terminal ${stationNumber} | Fulfillment: ${fulfillmentType.toUpperCase()} | Transaction: ${transactionId}`,
+      notes: `rozana Terminal ${stationNumber} | Fulfillment: ${fulfillmentType.toUpperCase()} | Transaction: ${transactionId}`,
     });
 
     if (saleResult.success && saleResult.sale) {
-      logActivity('CREATE', 'ZPOS_SALE', saleResult.sale.id, `Completed Z-POS Retail Sale #${saleResult.sale.invoice_no}`);
+      logActivity('CREATE', 'ROZANA_SALE', saleResult.sale.id, `Completed rozana Retail Sale #${saleResult.sale.invoice_no}`);
       setCreatedSale(saleResult.sale);
       showToast(`Sale #${saleResult.sale.invoice_no} completed successfully!`);
     } else {

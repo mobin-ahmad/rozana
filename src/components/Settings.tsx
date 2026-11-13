@@ -814,7 +814,7 @@ export const Settings: React.FC = () => {
               <SettingsIcon className="w-4 h-4 text-indigo-600" /> Duplicate SKU / Barcode Scan Behavior (Note b)
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Controls how Z-POS handles scanning an item that is already present in the active sale grid.
+              Controls how rozana handles scanning an item that is already present in the active sale grid.
             </p>
           </div>
 

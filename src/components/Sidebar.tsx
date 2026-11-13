@@ -67,18 +67,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     {
-      id: 'zpos',
-      label: 'Z-POS Retail',
-      icon: Store,
-      roles: ['admin', 'manager', 'cashier'] as UserRole[],
-      badge: 'MAIN',
-      badgeColor: 'bg-indigo-100 text-indigo-800',
-    },
-    {
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
       roles: ['admin', 'manager', 'cashier', 'warehouse_staff'] as UserRole[],
+    },
+    {
+      id: 'zpos',
+      label: 'rozana Retail',
+      icon: Store,
+      roles: ['admin', 'manager', 'cashier'] as UserRole[],
+      badge: 'MAIN',
+      badgeColor: 'bg-indigo-100 text-indigo-800',
     },
     {
       id: 'categories',
@@ -167,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <h2 className="text-base font-black text-white tracking-tight leading-none">Z-POS</h2>
+                <h2 className="text-base font-black text-white tracking-tight leading-none">rozana</h2>
                 <span className="text-[9px] font-bold uppercase tracking-wider bg-indigo-950/90 text-indigo-200 border border-indigo-700/80 px-1.5 py-0.5 rounded-md whitespace-nowrap">
                   RETAIL SAAS EDITION
                 </span>

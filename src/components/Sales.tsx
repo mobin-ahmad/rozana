@@ -107,7 +107,7 @@ export const Sales: React.FC<SalesProps> = ({ userRole, onNavigateToPos }) => {
             onClick={onNavigateToPos}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
           >
-            <Store className="w-4 h-4" /> Open Z-POS Terminal
+            <Store className="w-4 h-4" /> Open rozana Terminal
           </button>
         )}
       </div>
