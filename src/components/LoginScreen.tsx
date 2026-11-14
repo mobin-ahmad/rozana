@@ -17,7 +17,8 @@ import {
   AlertCircle,
   MonitorCheck,
   Layers,
-  Globe
+  Globe,
+  Crown
 } from 'lucide-react';
 import {
   getStoreChains,
@@ -29,7 +30,8 @@ import {
   getIsAuthenticated,
   getOrganizationAccessState,
   getEffectiveOrgLimits,
-  isUserSuperAdmin
+  isUserSuperAdmin,
+  MOBIN_SUPER_ADMIN
 } from '../lib/storage';
 import { StoreChain, User } from '../types';
 import { RegisterStoreChainModal } from './RegisterStoreChainModal';
@@ -114,6 +116,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setErrorMsg(null);
   };
 
+  const handleGlobalAdminLogin = (autoSubmit: boolean = true) => {
+    setIdentifier(MOBIN_SUPER_ADMIN.username);
+    setPassword(MOBIN_SUPER_ADMIN.password || '123456');
+    setErrorMsg(null);
+
+    if (!autoSubmit) return;
+
+    setIsLoading(true);
+    setTimeout(() => {
+      const res = loginUser(MOBIN_SUPER_ADMIN.username, MOBIN_SUPER_ADMIN.password || '123456', selectedChainId);
+      setIsLoading(false);
+      if (res.success && res.user) {
+        onLoginSuccess(res.user);
+      } else {
+        setErrorMsg(res.message || 'Global Admin sign-in failed.');
+      }
+    }, 200);
+  };
+
   return (
     <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col justify-between font-sans relative overflow-hidden select-none">
       {/* Background ambient lighting effects */}
@@ -142,7 +163,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-900/80 border border-slate-800 rounded-lg text-xs text-slate-300">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="font-semibold text-[11px]">System Online</span>
@@ -150,8 +171,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
           <button
             type="button"
+            onClick={() => handleGlobalAdminLogin(true)}
+            disabled={isLoading}
+            className="px-3.5 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 border border-amber-500/40 cursor-pointer disabled:opacity-50"
+            title="1-Click Global Super Admin Sign In (Development Portal)"
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-400" /> Global User Login
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsRegisterChainModalOpen(true)}
-            className="px-3.5 py-1.5 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 border border-indigo-400/30"
+            className="px-3.5 py-1.5 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 border border-indigo-400/30 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" /> New Store Chain
           </button>
@@ -416,24 +447,62 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </form>
 
             {/* Quick Demo Login Accounts Section */}
-            <div className="pt-4 border-t border-slate-800">
-              <div className="flex items-center justify-between mb-2">
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              {/* Dedicated Global User / King Admin Development Sign-In */}
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
+                    <Crown className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-black text-white">Global Platform Admin ({MOBIN_SUPER_ADMIN.full_name})</span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[9px] font-extrabold uppercase tracking-wider text-amber-300">
+                        Dev Portal • King Admin
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-mono truncate mt-0.5">
+                      User: {MOBIN_SUPER_ADMIN.username} • Pass: {MOBIN_SUPER_ADMIN.password || '123456'} • Cross-Org &amp; Plans Control
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleGlobalAdminLogin(false)}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] font-bold text-slate-300 cursor-pointer"
+                  >
+                    Fill
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => handleGlobalAdminLogin(true)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>Login Global</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400">
-                  ⚡ 1-Click Demo Accounts (Test Preview)
+                  ⚡ 1-Click Organization Accounts ({activeChain.code})
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono">PIN: 1234 / 5678</span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {currentChainUsers
-                  .filter((u) => selectedChainId === 'chain-default' || !isUserSuperAdmin(u))
+                  .filter((u) => !isUserSuperAdmin(u))
                   .slice(0, 6)
                   .map((u) => (
                   <button
                     key={u.id}
                     type="button"
                     onClick={() => handleQuickRoleSelect(u)}
-                    className={`p-2 rounded-xl text-left border transition-all text-xs flex flex-col justify-between ${
+                    className={`p-2 rounded-xl text-left border transition-all text-xs flex flex-col justify-between cursor-pointer ${
                       identifier === u.email || identifier === u.username
                         ? 'bg-indigo-600/20 border-indigo-500 text-white'
                         : 'bg-slate-950/60 border-slate-800 hover:bg-slate-800/60 text-slate-300'
