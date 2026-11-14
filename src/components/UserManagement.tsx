@@ -35,132 +35,30 @@ import {
   setActiveStoreChain,
   subscribeToStorage,
   setCurrentUser,
-  isUserSuperAdmin
+  isUserSuperAdmin,
+  defaultPermissionsByRole,
+  getRoles,
+  getEffectiveOrgLimits
 } from '../lib/storage';
-import { User, UserRole, UserPermissions, StoreChain, SystemSettings } from '../types';
+import { User, UserRole, UserPermissions, StoreChain, SystemSettings, RoleDefinition } from '../types';
 
 interface UserManagementProps {
   currentUser?: User;
   onUserSwitched?: (user: User) => void;
+  embedded?: boolean;
 }
-
-const defaultPermissionsByRole = (role: UserRole): UserPermissions => {
-  switch (role) {
-    case 'admin':
-      return {
-        pos_billing: true,
-        sales_view: true,
-        sales_discount: true,
-        sales_refund: true,
-        inventory_view: true,
-        inventory_manage: true,
-        purchases_manage: true,
-        customers_manage: true,
-        suppliers_manage: true,
-        expenses_manage: true,
-        reports_view: true,
-        settings_manage: true,
-        users_manage: true,
-        audit_logs_view: true,
-      };
-    case 'manager':
-      return {
-        pos_billing: true,
-        sales_view: true,
-        sales_discount: true,
-        sales_refund: true,
-        inventory_view: true,
-        inventory_manage: true,
-        purchases_manage: true,
-        customers_manage: true,
-        suppliers_manage: true,
-        expenses_manage: true,
-        reports_view: true,
-        settings_manage: false,
-        users_manage: false,
-        audit_logs_view: true,
-      };
-    case 'cashier':
-      return {
-        pos_billing: true,
-        sales_view: true,
-        sales_discount: true,
-        sales_refund: false,
-        inventory_view: true,
-        inventory_manage: false,
-        purchases_manage: false,
-        customers_manage: true,
-        suppliers_manage: false,
-        expenses_manage: false,
-        reports_view: false,
-        settings_manage: false,
-        users_manage: false,
-        audit_logs_view: false,
-      };
-    case 'inventory_manager':
-      return {
-        pos_billing: false,
-        sales_view: true,
-        sales_discount: false,
-        sales_refund: false,
-        inventory_view: true,
-        inventory_manage: true,
-        purchases_manage: true,
-        customers_manage: false,
-        suppliers_manage: true,
-        expenses_manage: false,
-        reports_view: true,
-        settings_manage: false,
-        users_manage: false,
-        audit_logs_view: true,
-      };
-    case 'accountant':
-      return {
-        pos_billing: false,
-        sales_view: true,
-        sales_discount: false,
-        sales_refund: false,
-        inventory_view: true,
-        inventory_manage: false,
-        purchases_manage: true,
-        customers_manage: true,
-        suppliers_manage: true,
-        expenses_manage: true,
-        reports_view: true,
-        settings_manage: false,
-        users_manage: false,
-        audit_logs_view: true,
-      };
-    case 'warehouse_staff':
-    default:
-      return {
-        pos_billing: false,
-        sales_view: true,
-        sales_discount: false,
-        sales_refund: false,
-        inventory_view: true,
-        inventory_manage: true,
-        purchases_manage: true,
-        customers_manage: false,
-        suppliers_manage: true,
-        expenses_manage: false,
-        reports_view: false,
-        settings_manage: false,
-        users_manage: false,
-        audit_logs_view: false,
-      };
-  }
-};
 
 export const UserManagement: React.FC<UserManagementProps> = ({
   currentUser: propUser,
-  onUserSwitched
+  onUserSwitched,
+  embedded = false,
 }) => {
   const [currentUser, setCurrentUserState] = useState<User>(() => propUser || getCurrentUser());
   const [settings, setSettingsState] = useState<SystemSettings>(() => getSettings());
   const [storeChains, setStoreChains] = useState<StoreChain[]>(() => getStoreChains());
   const [activeChain, setActiveChain] = useState<StoreChain>(() => getActiveStoreChain());
   const [users, setUsersState] = useState<User[]>(() => getUsers());
+  const [orgRoles, setOrgRoles] = useState<RoleDefinition[]>(() => getRoles());
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('all');
@@ -199,16 +97,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       setStoreChains(getStoreChains());
       setActiveChain(getActiveStoreChain());
       setCurrentUserState(getCurrentUser());
+      setOrgRoles(getRoles());
     });
     return unsubscribe;
   }, []);
 
   const activeUser = propUser || currentUser;
   const isSuperAdmin = isUserSuperAdmin(activeUser);
+  const orgLimits = getEffectiveOrgLimits(activeChain);
 
   const handleSwitchStoreChain = (chainId: string) => {
     if (!isSuperAdmin) {
-      alert('Access Restricted: Only Global Super Administrator can switch business organizations.');
+      showToast('Access Restricted: Only Global Super Administrator can switch business organizations.');
       return;
     }
     setActiveStoreChain(chainId);
@@ -229,7 +129,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     phone: '',
     designation: '',
     role: 'cashier',
+    custom_role_id: '',
     assigned_branch_id: 'br-1',
+    assigned_branches: ['br-1'],
     pos_pin: '1234',
     password: '',
     is_active: true,
@@ -237,10 +139,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   });
 
   const handleOpenCreateModal = () => {
+    const tenantNonSuperCount = (Array.isArray(users) ? users : []).filter((u) => !isUserSuperAdmin(u)).length;
+    if (tenantNonSuperCount >= orgLimits.maxUsers) {
+      showToast(`User limit reached (${tenantNonSuperCount}/${orgLimits.maxUsers}) for "${orgLimits.plan.name}" plan. Upgrade plan to add more staff.`);
+      return;
+    }
     setEditingUserId(null);
     setActiveTab('profile');
     const safeUsers = Array.isArray(users) ? users : [];
     const nextCode = `EMP-${(safeUsers.length + 1).toString().padStart(3, '0')}`;
+    const defaultBr = branches[0]?.id || 'br-1';
+    const cashierRole = orgRoles.find((r) => r.base_role === 'cashier');
     setFormData({
       full_name: '',
       username: '',
@@ -249,11 +158,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       phone: '',
       designation: 'POS Terminal Cashier',
       role: 'cashier',
-      assigned_branch_id: branches[0]?.id || 'br-1',
+      custom_role_id: cashierRole?.id || '',
+      assigned_branch_id: defaultBr,
+      assigned_branches: [defaultBr],
       pos_pin: '1234',
       password: '',
       is_active: true,
-      permissions: defaultPermissionsByRole('cashier'),
+      permissions: cashierRole?.permissions ? { ...cashierRole.permissions } : defaultPermissionsByRole('cashier'),
     });
     setIsModalOpen(true);
   };
@@ -261,8 +172,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const handleOpenEditModal = (user: User) => {
     setEditingUserId(user.id);
     setActiveTab('profile');
+    const brList =
+      Array.isArray(user.assigned_branches) && user.assigned_branches.length > 0
+        ? user.assigned_branches
+        : user.assigned_branch_id
+        ? [user.assigned_branch_id]
+        : [branches[0]?.id || 'br-1'];
     setFormData({
       ...user,
+      assigned_branches: brList,
       permissions: user.permissions || defaultPermissionsByRole(user.role || 'cashier'),
     });
     setIsModalOpen(true);
@@ -272,19 +190,36 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const updatedPerms = defaultPermissionsByRole(newRole);
     let defaultDesignation = formData.designation;
     if (!editingUserId) {
-      if (newRole === 'admin') defaultDesignation = 'System Administrator';
-      else if (newRole === 'manager') defaultDesignation = 'Branch Store Manager';
+      if (newRole === 'admin') defaultDesignation = 'Organization Admin';
+      else if (newRole === 'manager') defaultDesignation = 'Branch Manager';
       else if (newRole === 'cashier') defaultDesignation = 'POS Cashier';
-      else if (newRole === 'inventory_manager') defaultDesignation = 'Inventory Controller';
-      else if (newRole === 'accountant') defaultDesignation = 'Chief Accountant';
-      else if (newRole === 'warehouse_staff') defaultDesignation = 'Warehouse Supervisor';
+      else if (newRole === 'salesperson') defaultDesignation = 'Retail Salesperson';
+      else if (newRole === 'inventory_manager') defaultDesignation = 'Inventory Manager';
+      else if (newRole === 'purchase_manager') defaultDesignation = 'Purchase Manager';
+      else if (newRole === 'accountant') defaultDesignation = 'Accountant';
+      else if (newRole === 'warehouse_staff') defaultDesignation = 'Warehouse Staff';
     }
+    const matchingTemplate = orgRoles.find((r) => r.base_role === newRole);
 
     setFormData({
       ...formData,
       role: newRole,
+      custom_role_id: matchingTemplate?.id || '',
       designation: defaultDesignation,
-      permissions: updatedPerms,
+      permissions: matchingTemplate?.permissions ? { ...matchingTemplate.permissions } : updatedPerms,
+    });
+  };
+
+  const handleCustomRoleSelect = (roleId: string) => {
+    const found = orgRoles.find((r) => r.id === roleId);
+    if (!found) return;
+    setFormData({
+      ...formData,
+      custom_role_id: found.id,
+      role: found.base_role,
+      designation: editingUserId ? formData.designation : found.name,
+      permissions: { ...found.permissions },
+      ...(found.branch_access === 'all' ? { assigned_branch_id: 'all', assigned_branches: ['all'] } : {}),
     });
   };
 
@@ -305,16 +240,24 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
     const safeName = formData.full_name.trim();
     const usernameVal = formData.username?.trim() || safeName.toLowerCase().replace(/\s+/g, '');
+    const assignedBranchesList =
+      Array.isArray(formData.assigned_branches) && formData.assigned_branches.length > 0
+        ? formData.assigned_branches
+        : [formData.assigned_branch_id || branches[0]?.id || 'br-1'];
+    const primaryBranch = assignedBranchesList.includes('all') ? 'all' : assignedBranchesList[0];
+
     const userToSave: Partial<User> & { full_name: string; role: UserRole } = {
       ...(editingUserId ? { id: editingUserId } : {}),
       full_name: safeName,
       username: usernameVal,
       employee_code: formData.employee_code || `EMP-${Date.now().toString().slice(-3)}`,
-      email: formData.email || `${usernameVal}@askari.com`,
+      email: formData.email || `${usernameVal}@${(activeChain.code || 'rozana').toLowerCase()}.pos`,
       phone: formData.phone || '',
       designation: formData.designation || `${(formData.role || 'cashier').replace('_', ' ').toUpperCase()} Staff`,
       role: formData.role || 'cashier',
-      assigned_branch_id: formData.assigned_branch_id || 'br-1',
+      custom_role_id: formData.custom_role_id || undefined,
+      assigned_branch_id: primaryBranch,
+      assigned_branches: assignedBranchesList,
       pos_pin: formData.pos_pin || '1234',
       password: formData.password || '',
       is_active: formData.is_active ?? true,
@@ -323,7 +266,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
     const res = saveUser(userToSave as any);
     setUsersState(getUsers());
-    setIsModalOpen(false);
+    if (res.success) {
+      setIsModalOpen(false);
+    }
     showToast(res.message || 'User saved successfully');
   };
 
@@ -336,14 +281,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const handleDelete = (id: number, name: string) => {
     const targetUser = users.find((u) => u.id === id);
     if (targetUser && ((targetUser.username || '').toLowerCase() === 'mobin' || targetUser.is_super_admin)) {
-      alert('Global Super Administrator (Mobin) cannot be deleted. This account holds master SaaS authority.');
+      showToast('Global Super Administrator (Mobin) cannot be deleted.');
       return;
     }
-    if (window.confirm(`Are you sure you want to remove user "${name}" from the system?`)) {
-      const res = deleteUser(id);
-      setUsersState(getUsers());
-      showToast(res.message || 'User removed');
-    }
+    const res = deleteUser(id);
+    setUsersState(getUsers());
+    showToast(res.message || `User "${name}" removed`);
   };
 
   const handleSavePin = (e: React.FormEvent) => {
@@ -358,7 +301,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
   const handleQuickSwitchToUser = (user: User) => {
     if (!isSuperAdmin && ((user.username || '').toLowerCase() === 'mobin' || user.is_super_admin)) {
-      alert('Access Restricted: Cannot switch to Global Super Administrator.');
+      showToast('Access Restricted: Cannot switch to Global Super Administrator.');
       return;
     }
     setCurrentUser(user);
@@ -398,7 +341,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const matchesBranch =
       selectedBranchFilter === 'all' ||
       u.assigned_branch_id === 'all' ||
-      u.assigned_branch_id === selectedBranchFilter;
+      u.assigned_branch_id === selectedBranchFilter ||
+      (Array.isArray(u.assigned_branches) && (u.assigned_branches.includes('all') || u.assigned_branches.includes(selectedBranchFilter)));
 
     const matchesRole = selectedRoleFilter === 'all' || u.role === selectedRoleFilter;
 
@@ -422,13 +366,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     switch (role) {
       case 'admin':
         return {
-          label: 'Store Admin',
+          label: 'Organization Admin',
           cls: 'bg-purple-100 text-purple-800 border-purple-200',
           icon: <Crown className="w-3 h-3 text-purple-600" />,
         };
       case 'manager':
         return {
-          label: 'Manager',
+          label: 'Branch Manager',
           cls: 'bg-indigo-100 text-indigo-800 border-indigo-200',
           icon: <Shield className="w-3 h-3 text-indigo-600" />,
         };
@@ -438,11 +382,23 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           cls: 'bg-emerald-100 text-emerald-800 border-emerald-200',
           icon: <UserCheck className="w-3 h-3 text-emerald-600" />,
         };
+      case 'salesperson':
+        return {
+          label: 'Salesperson',
+          cls: 'bg-teal-100 text-teal-800 border-teal-200',
+          icon: <UserCheck className="w-3 h-3 text-teal-600" />,
+        };
       case 'inventory_manager':
         return {
-          label: 'Inventory Controller',
+          label: 'Inventory Manager',
           cls: 'bg-amber-100 text-amber-800 border-amber-200',
           icon: <Layers className="w-3 h-3 text-amber-600" />,
+        };
+      case 'purchase_manager':
+        return {
+          label: 'Purchase Manager',
+          cls: 'bg-orange-100 text-orange-800 border-orange-200',
+          icon: <Briefcase className="w-3 h-3 text-orange-600" />,
         };
       case 'accountant':
         return {
@@ -460,9 +416,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     }
   };
 
-  const getBranchName = (branchId?: string) => {
-    if (!branchId || branchId === 'all') return 'All Branches (Head Office)';
-    const found = branches.find((b) => b && b.id === branchId);
+  const getBranchName = (branchId?: string, assignedBranches?: string[]) => {
+    const list = Array.isArray(assignedBranches) && assignedBranches.length > 0 ? assignedBranches : branchId ? [branchId] : [];
+    if (list.length === 0 || list.includes('all')) return 'All Branches (Head Office)';
+    if (list.length > 1) return `${list.length} Branches Assigned`;
+    const found = branches.find((b) => b && b.id === list[0]);
     return found ? `${found.name || 'Branch'}${found.city ? ` (${found.city})` : ''}` : 'Primary Branch';
   };
 
@@ -473,7 +431,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const adminCount = safeUsers.filter((u) => u && u.role === 'admin' && u.is_active).length;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto font-sans">
+    <div className={embedded ? 'space-y-4 font-sans' : 'p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto font-sans'}>
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl border border-slate-700 text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
@@ -483,65 +441,85 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       )}
 
       {/* Top Banner Header with Multi-Store Context */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-              <UserCog className="w-5 h-5" />
-            </span>
-            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">System User Management</h1>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
-              Active Business: {activeChain.name || 'Askari'}
+      {!embedded ? (
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                <UserCog className="w-5 h-5" />
+              </span>
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">System User Management</h1>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                Active Organization: {activeChain.name || 'Rozana'}
+              </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                Seats: {safeUsers.filter((u) => !isUserSuperAdmin(u)).length} / {orgLimits.maxUsers}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Define system operator credentials, multi-branch station access, POS quick PINs, and module permission matrices.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {isSuperAdmin ? (
+              <div className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-xl border border-amber-500/30 shadow-xs">
+                <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                <div className="flex flex-col">
+                  <span className="text-[8px] font-extrabold uppercase text-amber-400 tracking-wider">Organization:</span>
+                  <select
+                    value={activeChain.id}
+                    onChange={(e) => handleSwitchStoreChain(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer pr-1"
+                  >
+                    {storeChains.map((c) => (
+                      <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                        {c.name} {c.code ? `(${c.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-slate-100 text-slate-800 px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                <Store className="w-4 h-4 text-indigo-600 shrink-0" />
+                <div className="flex flex-col">
+                  <span className="text-[8px] font-extrabold uppercase text-slate-400 tracking-wider leading-none mb-0.5">
+                    Organization
+                  </span>
+                  <span className="text-xs font-extrabold text-slate-900 leading-none">
+                    {activeChain.name}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Add System User
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3.5 px-4 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-extrabold text-slate-900">Employee Seat Quota:</span>
+            <span className="font-mono font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-indigo-700 tabular-nums">
+              {safeUsers.filter((u) => !isUserSuperAdmin(u)).length} / {orgLimits.maxUsers} ({orgLimits.plan.name})
             </span>
           </div>
-          <p className="text-xs text-slate-500">
-            Define system operator credentials, multi-branch station access, POS quick PINs, and module permission matrices.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Super Admin Store Chain Switcher or Static Store Badge */}
-          {isSuperAdmin ? (
-            <div className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-xl border border-amber-500/30 shadow-xs">
-              <Crown className="w-4 h-4 text-amber-400 shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[8px] font-extrabold uppercase text-amber-400 tracking-wider">Business:</span>
-                <select
-                  value={activeChain.id}
-                  onChange={(e) => handleSwitchStoreChain(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer pr-1"
-                >
-                  {storeChains.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
-                      {c.name} {c.code ? `(${c.code})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 bg-slate-100 text-slate-800 px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
-              <Store className="w-4 h-4 text-indigo-600 shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[8px] font-extrabold uppercase text-slate-400 tracking-wider leading-none mb-0.5">
-                  Business Organization
-                </span>
-                <span className="text-xs font-extrabold text-slate-900 leading-none">
-                  {activeChain.name}
-                </span>
-              </div>
-            </div>
-          )}
-
           <button
             type="button"
             onClick={handleOpenCreateModal}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> Add System User
+            <Plus className="w-3.5 h-3.5" /> Add Employee / User
           </button>
         </div>
-      </div>
+      )}
 
       {/* Stats Summary Widgets */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -613,10 +591,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 className="bg-transparent font-bold text-slate-800 outline-none cursor-pointer text-xs"
               >
                 <option value="all">All Roles</option>
-                <option value="admin">System Admin</option>
-                <option value="manager">Store Manager</option>
+                <option value="admin">Organization Admin</option>
+                <option value="manager">Branch Manager</option>
                 <option value="cashier">POS Cashier</option>
-                <option value="inventory_manager">Inventory Controller</option>
+                <option value="salesperson">Salesperson</option>
+                <option value="inventory_manager">Inventory Manager</option>
+                <option value="purchase_manager">Purchase Manager</option>
                 <option value="accountant">Accountant</option>
                 <option value="warehouse_staff">Warehouse Staff</option>
               </select>
@@ -698,7 +678,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 {filteredUsers.map((u) => {
                   const isUserSuperAdmin = u.is_super_admin || (u.username || '').toLowerCase() === 'mobin';
                   const roleBadge = getRoleBadge(u.role, isUserSuperAdmin);
-                  const branchLabel = getBranchName(u.assigned_branch_id);
+                  const branchLabel = getBranchName(u.assigned_branch_id, u.assigned_branches);
                   const perms = u.permissions || defaultPermissionsByRole(u.role || 'cashier');
                   const firstChar = (u.full_name || 'U').charAt(0).toUpperCase();
 
@@ -845,7 +825,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           {filteredUsers.map((u) => {
             const isUserSuperAdmin = u.is_super_admin || (u.username || '').toLowerCase() === 'mobin';
             const roleBadge = getRoleBadge(u.role, isUserSuperAdmin);
-            const branchLabel = getBranchName(u.assigned_branch_id);
+            const branchLabel = getBranchName(u.assigned_branch_id, u.assigned_branches);
             const perms = u.permissions || defaultPermissionsByRole(u.role || 'cashier');
             const firstChar = (u.full_name || 'U').charAt(0).toUpperCase();
 
@@ -1139,26 +1119,72 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     </div>
                   </div>
 
-                  {/* Assigned Store Branch Selection */}
-                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200/80 space-y-2">
-                    <label className="block font-extrabold text-indigo-950 flex items-center gap-1.5">
-                      <Building2 className="w-4 h-4 text-indigo-600" /> Assigned Store Branch / Location *
-                    </label>
-                    <p className="text-[11px] text-slate-600">
-                      Select which store branch this staff member is authorized to operate in:
-                    </p>
-                    <select
-                      value={formData.assigned_branch_id || 'all'}
-                      onChange={(e) => setFormData({ ...formData, assigned_branch_id: e.target.value })}
-                      className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-900 cursor-pointer"
-                    >
-                      <option value="all">🌐 All Store Branches (Head Office Access)</option>
-                      {branches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          🏪 {b.name} {b.city ? `(${b.city})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                  {/* Assigned Store Branch Selection (Multi-Branch Support) */}
+                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200/80 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-extrabold text-indigo-950 flex items-center gap-1.5">
+                        <Building2 className="w-4 h-4 text-indigo-600" /> Assigned Branch Access *
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={
+                            formData.assigned_branch_id === 'all' ||
+                            Boolean(formData.assigned_branches?.includes('all'))
+                          }
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, assigned_branch_id: 'all', assigned_branches: ['all'] });
+                            } else {
+                              const firstId = branches[0]?.id || 'br-1';
+                              setFormData({ ...formData, assigned_branch_id: firstId, assigned_branches: [firstId] });
+                            }
+                          }}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                        />
+                        All Branches (Head Office)
+                      </label>
+                    </div>
+                    {!(formData.assigned_branch_id === 'all' || formData.assigned_branches?.includes('all')) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {branches.map((b) => {
+                          const selectedList = formData.assigned_branches || [];
+                          const checked = selectedList.includes(b.id) || formData.assigned_branch_id === b.id;
+                          return (
+                            <label
+                              key={b.id}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                                checked
+                                  ? 'bg-white border-indigo-400 text-slate-900 font-bold'
+                                  : 'bg-white/60 border-slate-200 text-slate-600'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const curr = new Set(formData.assigned_branches || (formData.assigned_branch_id ? [formData.assigned_branch_id] : []));
+                                  curr.delete('all');
+                                  if (e.target.checked) {
+                                    curr.add(b.id);
+                                  } else if (curr.size > 1) {
+                                    curr.delete(b.id);
+                                  }
+                                  const nextArr = Array.from(curr);
+                                  setFormData({
+                                    ...formData,
+                                    assigned_branches: nextArr,
+                                    assigned_branch_id: nextArr[0] || branches[0]?.id || 'br-1',
+                                  });
+                                }}
+                                className="w-3.5 h-3.5 text-indigo-600 rounded"
+                              />
+                              <span className="truncate">{b.name} {b.code ? `[${b.code}]` : ''}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1166,23 +1192,39 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               {/* TAB 2: ROLE & PERMISSIONS MATRIX */}
               {activeTab === 'permissions' && (
                 <div className="space-y-4 animate-in fade-in duration-100">
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="block font-extrabold text-slate-900">System Permission Role Preset</label>
-                      <span className="text-[10px] text-indigo-600 font-bold">Selecting a role sets recommended default access</span>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-extrabold text-slate-900 mb-1">Organization Role Template</label>
+                      <select
+                        value={formData.custom_role_id || ''}
+                        onChange={(e) => handleCustomRoleSelect(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-900 cursor-pointer"
+                      >
+                        <option value="">Custom / Base Role Selection</option>
+                        {orgRoles.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name} ({r.base_role.replace('_', ' ')})
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <select
-                      value={formData.role || 'cashier'}
-                      onChange={(e) => handleRoleChangeInForm(e.target.value as UserRole)}
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-extrabold text-slate-900 cursor-pointer"
-                    >
-                      <option value="admin">Crown Admin (Full Unrestricted Access)</option>
-                      <option value="manager">Branch Store Manager (Operations, Sales, Purchases)</option>
-                      <option value="cashier">POS Terminal Cashier (Billing & Counter Sales)</option>
-                      <option value="inventory_manager">Inventory Controller (Stock & Catalog Management)</option>
-                      <option value="accountant">Financial Accountant (Expenses, Supplier Payments & Audits)</option>
-                      <option value="warehouse_staff">Warehouse Staff (Receiving & Stock Movement)</option>
-                    </select>
+                    <div>
+                      <label className="block font-extrabold text-slate-900 mb-1">Base System Role Preset</label>
+                      <select
+                        value={formData.role || 'cashier'}
+                        onChange={(e) => handleRoleChangeInForm(e.target.value as UserRole)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-extrabold text-slate-900 cursor-pointer"
+                      >
+                        <option value="admin">Organization Admin (Full Access)</option>
+                        <option value="manager">Branch Manager (Branch Operations)</option>
+                        <option value="cashier">POS Terminal Cashier</option>
+                        <option value="salesperson">Salesperson</option>
+                        <option value="inventory_manager">Inventory Manager</option>
+                        <option value="purchase_manager">Purchase Manager</option>
+                        <option value="accountant">Financial Accountant</option>
+                        <option value="warehouse_staff">Warehouse Staff</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Granular Checkbox Matrix */}

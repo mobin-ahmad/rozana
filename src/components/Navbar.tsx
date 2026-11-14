@@ -17,7 +17,9 @@ import {
   getActiveStoreChain,
   setActiveStoreChain,
   subscribeToStorage,
-  isUserSuperAdmin
+  isUserSuperAdmin,
+  getAuthorizedBranchesForUser,
+  getOrganizationAccessState
 } from '../lib/storage';
 import { databaseService, DbConnectionStatus } from '../lib/databaseService';
 import { DatabaseModal } from './DatabaseModal';
@@ -76,18 +78,24 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   const isSuperAdmin = isUserSuperAdmin(activeUser);
-  const isStoreAdmin = !isSuperAdmin && (activeUser.role === 'admin' || activeUser.role === 'manager');
+  const authorizedBranches = getAuthorizedBranchesForUser(activeUser);
+  const canSwitchBranch =
+    isSuperAdmin ||
+    activeUser.role === 'admin' ||
+    activeUser.role === 'manager' ||
+    authorizedBranches.length > 1;
+  const orgAccess = getOrganizationAccessState(activeChain);
 
   const businessName = activeChain.name || settings.business_name || 'Askari Departmental Store Chain';
-  const branchName = settings.branch_name || (settings.branches && settings.branches[0]?.name) || 'Main Branch';
-  const branchAddress = settings.business_address || (settings.branches && settings.branches[0]?.address) || activeChain.address || '';
-  const branches = settings.branches && settings.branches.length > 0
-    ? settings.branches
+  const branchName = settings.branch_name || (authorizedBranches[0]?.name) || 'Main Branch';
+  const branchAddress = settings.business_address || (authorizedBranches[0]?.address) || activeChain.address || '';
+  const branches = authorizedBranches.length > 0
+    ? authorizedBranches
     : [{ id: 'br-1', name: branchName, address: branchAddress, code: '01' }];
 
   const handleSwitchBusiness = (chainId: string) => {
     if (!isSuperAdmin) {
-      alert('Access Restricted: Only Global Super Administrator can switch store organizations.');
+      showToast('Access Restricted: Only Global Super Administrator can switch store organizations.');
       return;
     }
     setActiveStoreChain(chainId);
@@ -104,6 +112,8 @@ export const Navbar: React.FC<NavbarProps> = ({
       const updatedSettings = getSettings();
       setSettingsState(updatedSettings);
       showToast(`Branch switched to: ${updatedSettings.branch_name}`);
+    } else {
+      showToast(res.message || 'Unable to switch branch');
     }
   };
 
@@ -137,6 +147,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {activeChain.code && (
                   <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 bg-slate-800 text-indigo-300 rounded border border-slate-700 shrink-0">
                     {activeChain.code}
+                  </span>
+                )}
+                {orgAccess.blocked && (
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-rose-950/90 text-rose-300 rounded border border-rose-700 shrink-0">
+                    {orgAccess.status}
                   </span>
                 )}
               </div>
@@ -186,7 +201,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          {isStoreAdmin && (
+          {!isSuperAdmin && canSwitchBranch && (
             <div className="flex items-center justify-start xl:justify-center gap-2 bg-slate-900/95 p-1.5 px-3 rounded-xl border border-indigo-500/30 shadow-inner">
               <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               <span className="text-[10px] font-black uppercase text-indigo-300 tracking-wider">Switch Branch:</span>

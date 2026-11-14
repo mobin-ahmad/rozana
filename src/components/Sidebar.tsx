@@ -1,13 +1,12 @@
 import React from 'react';
 import {
   LayoutDashboard,
-  ShoppingCart,
   Store,
-  Boxes,
   FolderTree,
   Truck,
   Users,
   Building2,
+  GitBranch,
   Receipt,
   CreditCard,
   CircleDollarSign,
@@ -20,7 +19,12 @@ import {
   Database
 } from 'lucide-react';
 import { User, UserRole } from '../types';
-import { isUserSuperAdmin } from '../lib/storage';
+import {
+  isUserSuperAdmin,
+  getActiveStoreChain,
+  getEffectiveOrgLimits,
+  subscribeToStorage
+} from '../lib/storage';
 import { databaseService, DbConnectionStatus } from '../lib/databaseService';
 import { DatabaseModal } from './DatabaseModal';
 
@@ -46,110 +50,179 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isSuper = isUserSuperAdmin(currentUser);
   const [isDbModalOpen, setIsDbModalOpen] = React.useState(false);
   const [dbStatus, setDbStatus] = React.useState<DbConnectionStatus>(() => databaseService.getLastStatus());
+  const [enabledModules, setEnabledModules] = React.useState<string[]>(
+    () => getEffectiveOrgLimits(getActiveStoreChain()).availableModules
+  );
 
   React.useEffect(() => {
     databaseService.checkStatus();
-    const unsub = databaseService.subscribe((s) => setDbStatus(s));
-    return () => unsub();
+    const unsubDb = databaseService.subscribe((s) => setDbStatus(s));
+    const unsubStorage = subscribeToStorage(() => {
+      setEnabledModules(getEffectiveOrgLimits(getActiveStoreChain()).availableModules);
+    });
+    return () => {
+      unsubDb();
+      unsubStorage();
+    };
   }, []);
 
-  const isAllowed = (item: { id: string; roles: UserRole[] }) => {
-    // SaaS Business Profiles is strictly reserved for Global Super Admin
-    if (item.id === 'businesses') {
+  const isAllowed = (item: { id: string; moduleKey?: string; roles: UserRole[] }) => {
+    if (item.id === 'organizations') {
       return isSuper;
     }
-    if (item.id === 'users') {
-      return isSuper || userRole === 'admin' || Boolean(currentUser?.permissions?.users_manage);
-    }
     if (isSuper) return true;
-    return item.roles.includes(userRole);
+
+    if (item.id !== 'dashboard' && item.moduleKey && !enabledModules.includes(item.moduleKey)) {
+      return false;
+    }
+
+    const perms = currentUser?.permissions;
+    switch (item.id) {
+      case 'dashboard':
+        return true;
+      case 'zpos':
+        return perms ? perms.pos_billing : item.roles.includes(userRole);
+      case 'categories':
+        return perms ? perms.inventory_view || perms.inventory_manage : item.roles.includes(userRole);
+      case 'purchases':
+        return perms ? perms.purchases_manage : item.roles.includes(userRole);
+      case 'customers':
+        return perms ? perms.customers_manage : item.roles.includes(userRole);
+      case 'suppliers':
+        return perms ? perms.suppliers_manage : item.roles.includes(userRole);
+      case 'sales':
+        return perms ? perms.sales_view || perms.pos_billing : item.roles.includes(userRole);
+      case 'payments':
+        return perms
+          ? perms.customers_manage || perms.suppliers_manage || perms.expenses_manage
+          : item.roles.includes(userRole);
+      case 'expenses':
+        return perms ? perms.expenses_manage : item.roles.includes(userRole);
+      case 'reports':
+        return perms ? perms.reports_view : item.roles.includes(userRole);
+      case 'org-management':
+        return (
+          userRole === 'admin' ||
+          userRole === 'manager' ||
+          Boolean(perms?.users_manage || perms?.settings_manage)
+        );
+      case 'users':
+        return userRole === 'admin' || Boolean(perms?.users_manage);
+      case 'logs':
+        return userRole === 'admin' || Boolean(perms?.audit_logs_view);
+      case 'settings':
+        return userRole === 'admin' || Boolean(perms?.settings_manage);
+      default:
+        return item.roles.includes(userRole);
+    }
   };
 
   const navItems = [
     {
       id: 'dashboard',
+      moduleKey: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      roles: ['admin', 'manager', 'cashier', 'warehouse_staff'] as UserRole[],
+      roles: ['admin', 'manager', 'cashier', 'salesperson', 'inventory_manager', 'purchase_manager', 'accountant', 'warehouse_staff'] as UserRole[],
     },
     {
       id: 'zpos',
+      moduleKey: 'pos',
       label: 'rozana Retail',
       icon: Store,
-      roles: ['admin', 'manager', 'cashier'] as UserRole[],
+      roles: ['admin', 'manager', 'cashier', 'salesperson'] as UserRole[],
       badge: 'MAIN',
       badgeColor: 'bg-indigo-100 text-indigo-800',
     },
     {
       id: 'categories',
+      moduleKey: 'inventory',
       label: 'Item Setup',
       icon: FolderTree,
-      roles: ['admin', 'manager', 'warehouse_staff'] as UserRole[],
+      roles: ['admin', 'manager', 'inventory_manager', 'purchase_manager', 'warehouse_staff'] as UserRole[],
     },
     {
       id: 'purchases',
+      moduleKey: 'purchases',
       label: 'Purchases (Stock-In)',
       icon: Truck,
-      roles: ['admin', 'manager', 'warehouse_staff'] as UserRole[],
+      roles: ['admin', 'manager', 'inventory_manager', 'purchase_manager', 'warehouse_staff', 'accountant'] as UserRole[],
     },
     {
       id: 'customers',
+      moduleKey: 'customers',
       label: 'Customers & Ledger',
       icon: Users,
-      roles: ['admin', 'manager', 'cashier'] as UserRole[],
+      roles: ['admin', 'manager', 'cashier', 'salesperson', 'accountant'] as UserRole[],
     },
     {
       id: 'suppliers',
+      moduleKey: 'suppliers',
       label: 'Suppliers & Ledger',
       icon: Building2,
-      roles: ['admin', 'manager', 'warehouse_staff'] as UserRole[],
+      roles: ['admin', 'manager', 'inventory_manager', 'purchase_manager', 'warehouse_staff', 'accountant'] as UserRole[],
     },
     {
       id: 'sales',
+      moduleKey: 'sales',
       label: 'Sales & Invoices',
       icon: Receipt,
-      roles: ['admin', 'manager', 'cashier'] as UserRole[],
+      roles: ['admin', 'manager', 'cashier', 'salesperson', 'accountant'] as UserRole[],
     },
     {
       id: 'payments',
+      moduleKey: 'payments',
       label: 'Payments Ledger',
       icon: CreditCard,
-      roles: ['admin', 'manager', 'cashier'] as UserRole[],
+      roles: ['admin', 'manager', 'cashier', 'accountant'] as UserRole[],
     },
     {
       id: 'expenses',
+      moduleKey: 'expenses',
       label: 'Expenses',
       icon: CircleDollarSign,
-      roles: ['admin', 'manager'] as UserRole[],
+      roles: ['admin', 'manager', 'accountant'] as UserRole[],
     },
     {
       id: 'reports',
+      moduleKey: 'reports',
       label: 'Reports & Analytics',
       icon: BarChart3,
-      roles: ['admin', 'manager'] as UserRole[],
+      roles: ['admin', 'manager', 'salesperson', 'inventory_manager', 'purchase_manager', 'accountant'] as UserRole[],
     },
     {
-      id: 'businesses',
-      label: 'Business Profiles',
+      id: 'organizations',
+      moduleKey: 'organization',
+      label: 'Organizations',
       icon: Building2,
       roles: ['admin'] as UserRole[],
-      badge: 'SaaS',
+      badge: 'Platform',
       badgeColor: 'bg-purple-100 text-purple-800',
     },
     {
+      id: 'org-management',
+      moduleKey: 'organization',
+      label: 'Organization Management',
+      icon: GitBranch,
+      roles: ['admin', 'manager'] as UserRole[],
+    },
+    {
       id: 'users',
+      moduleKey: 'users',
       label: 'User Management',
       icon: UserCog,
       roles: ['admin'] as UserRole[],
     },
     {
       id: 'logs',
+      moduleKey: 'audit_logs',
       label: 'Activity Audit Logs',
       icon: History,
       roles: ['admin'] as UserRole[],
     },
     {
       id: 'settings',
+      moduleKey: 'settings',
       label: 'System Settings',
       icon: SettingsIcon,
       roles: ['admin'] as UserRole[],

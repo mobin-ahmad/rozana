@@ -1,4 +1,12 @@
-export type UserRole = 'admin' | 'manager' | 'cashier' | 'warehouse_staff' | 'inventory_manager' | 'accountant';
+export type UserRole =
+  | 'admin'
+  | 'manager'
+  | 'cashier'
+  | 'salesperson'
+  | 'inventory_manager'
+  | 'purchase_manager'
+  | 'warehouse_staff'
+  | 'accountant';
 
 export interface UserPermissions {
   pos_billing: boolean;
@@ -17,22 +25,69 @@ export interface UserPermissions {
   audit_logs_view: boolean;
 }
 
+export interface ModulePermissionActions {
+  access: boolean;
+  view: boolean;
+  add: boolean;
+  edit: boolean;
+  delete: boolean;
+  approve: boolean;
+  print: boolean;
+  export: boolean;
+}
+
+export type RoleModuleKey =
+  | 'dashboard'
+  | 'pos'
+  | 'inventory'
+  | 'purchases'
+  | 'sales'
+  | 'customers'
+  | 'suppliers'
+  | 'payments'
+  | 'expenses'
+  | 'reports'
+  | 'organization'
+  | 'users'
+  | 'settings'
+  | 'audit_logs';
+
+export type GranularPermissionMatrix = Record<RoleModuleKey, ModulePermissionActions>;
+
+export interface RoleDefinition {
+  id: string;
+  organization_id: string;
+  name: string;
+  base_role: UserRole;
+  description?: string;
+  branch_access: 'all' | 'assigned';
+  permissions: UserPermissions;
+  matrix: GranularPermissionMatrix;
+  is_system?: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface User {
   id: number;
+  organization_id?: string;
   full_name: string;
   username: string;
   email: string;
   phone: string;
   role: UserRole;
+  custom_role_id?: string;
   designation?: string;
   employee_code?: string;
-  assigned_branch_id?: string; // 'all' or branch id like 'br-1'
+  assigned_branch_id?: string; // 'all' or primary branch id like 'br-1'
+  assigned_branches?: string[]; // multiple permitted branches
   pos_pin?: string;
   password?: string;
   permissions?: UserPermissions;
   avatar?: string;
   is_active: boolean;
-  is_super_admin?: boolean; // Global SaaS Super Admin across all businesses
+  account_status?: 'active' | 'inactive' | 'invited';
+  is_super_admin?: boolean; // Global SaaS Super Admin / King Admin across all organizations
   last_login?: string;
   created_at: string;
   updated_at?: string;
@@ -270,27 +325,79 @@ export interface Currency {
   is_active: boolean;
 }
 
+export type OrganizationStatus = 'active' | 'suspended' | 'expired' | 'pending';
+export type PlanStatus = 'active' | 'inactive';
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  description: string;
+  monthly_price: number;
+  annual_price: number;
+  max_branches: number;
+  max_users: number;
+  max_pos_terminals: number;
+  storage_limit_mb: number;
+  available_modules: string[];
+  status: PlanStatus;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface SubscriptionHistoryEntry {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  previous_plan_id?: string;
+  previous_plan_name?: string;
+  new_plan_id: string;
+  new_plan_name: string;
+  action: 'assigned' | 'upgraded' | 'downgraded' | 'renewed' | 'status_changed';
+  changed_by: string;
+  notes?: string;
+  created_at: string;
+}
+
 export interface StoreChain {
   id: string;
   name: string;
   code: string;
-  business_type?: string; // e.g. 'Timber & Wood Mart', 'Retail Chain', 'Superstore'
+  business_type?: string; // e.g. 'Departmental Store', 'Retail Chain', 'Superstore'
   industry?: string;
   description?: string;
+  registration_number?: string;
   tax_id?: string;
+  website?: string;
+  country?: string;
+  city?: string;
   logo_url?: string;
   admin_email: string;
   admin_name: string;
+  admin_username?: string;
+  admin_phone?: string;
   phone?: string;
   address?: string;
+  // Subscription & Status
+  plan_id?: string;
+  subscription_start_date?: string;
+  subscription_expiry_date?: string;
+  max_branches?: number;
+  max_users?: number;
+  max_pos_terminals?: number;
+  status?: OrganizationStatus;
   created_at: string;
   is_active: boolean;
 }
 
 export interface StoreBranch {
   id: string;
+  organization_id?: string;
   name: string;
   code: string;
+  branch_type?: 'head_office' | 'retail_outlet' | 'warehouse' | 'express_mart' | 'franchise';
+  contact_person?: string;
+  manager_user_id?: number | null;
+  manager_name?: string;
   address: string;
   address_line_2?: string;
   phone?: string;
@@ -300,7 +407,10 @@ export interface StoreBranch {
   city?: string;
   postal_code?: string;
   country?: string;
+  status?: 'active' | 'inactive';
+  opening_date?: string;
   is_head_office?: boolean;
+  is_active?: boolean;
 }
 
 export interface SystemSettings {
@@ -319,6 +429,8 @@ export interface SystemSettings {
   postal_code?: string;
   country?: string;
   tax_id?: string;
+  registration_number?: string;
+  website?: string;
   phone?: string;
   address?: string;
   currency_symbol: string;
@@ -342,9 +454,27 @@ export interface SystemSettings {
 
 export interface ActivityLog {
   id: number;
+  organization_id?: string;
+  organization_name?: string;
+  branch_id?: string;
+  branch_name?: string;
   user_id: number;
   username: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'BULK_IMPORT' | 'CANCEL' | 'RETURN_ITEM' | 'TOGGLE_STATUS' | 'RESET_PWD';
+  action:
+    | 'CREATE'
+    | 'UPDATE'
+    | 'DELETE'
+    | 'LOGIN'
+    | 'LOGOUT'
+    | 'BULK_IMPORT'
+    | 'CANCEL'
+    | 'RETURN_ITEM'
+    | 'TOGGLE_STATUS'
+    | 'RESET_PWD'
+    | 'PLAN_CHANGE'
+    | 'SUSPEND'
+    | 'ACTIVATE'
+    | 'ROLE_CHANGE';
   table_name: string;
   record_id?: string | number;
   details: string;

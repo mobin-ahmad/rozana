@@ -8,7 +8,26 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ------------------------------------------------------------------------
--- 1. STORE CHAINS & MULTI-TENANCY
+-- 0. SUBSCRIPTION PLANS (PLATFORM LEVEL)
+-- ------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS "SUBSCRIPTION_PLANS" (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL UNIQUE,
+    description TEXT,
+    monthly_price NUMERIC(14, 2) DEFAULT 0.00,
+    annual_price NUMERIC(14, 2) DEFAULT 0.00,
+    max_branches INT NOT NULL DEFAULT 1,
+    max_users INT NOT NULL DEFAULT 5,
+    max_pos_terminals INT NOT NULL DEFAULT 2,
+    storage_limit_mb INT DEFAULT 1024,
+    available_modules JSONB DEFAULT '["dashboard","pos","inventory","sales","customers","payments"]'::jsonb,
+    status VARCHAR(32) NOT NULL DEFAULT 'active', -- active, inactive
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ------------------------------------------------------------------------
+-- 1. STORE CHAINS / ORGANIZATIONS & MULTI-TENANCY
 -- ------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS "STORE_CHAINS" (
     id VARCHAR(64) PRIMARY KEY,
@@ -17,13 +36,27 @@ CREATE TABLE IF NOT EXISTS "STORE_CHAINS" (
     business_type VARCHAR(128) DEFAULT 'Supermarket & General Retail',
     industry VARCHAR(128) DEFAULT 'Retail Departmental Store',
     description TEXT,
+    registration_number VARCHAR(128),
+    tax_id VARCHAR(128),
+    website VARCHAR(255),
+    country VARCHAR(128) DEFAULT 'Pakistan',
+    city VARCHAR(128) DEFAULT 'Lahore',
     logo_url TEXT,
     admin_email VARCHAR(255),
     admin_name VARCHAR(255),
+    admin_username VARCHAR(128),
+    admin_phone VARCHAR(64),
     phone VARCHAR(64),
     address TEXT,
     currency VARCHAR(16) DEFAULT 'PKR',
     currency_symbol VARCHAR(16) DEFAULT 'Rs.',
+    plan_id VARCHAR(64) REFERENCES "SUBSCRIPTION_PLANS"(id) ON DELETE SET NULL,
+    subscription_start_date DATE DEFAULT CURRENT_DATE,
+    subscription_expiry_date DATE,
+    max_branches INT DEFAULT 5,
+    max_users INT DEFAULT 25,
+    max_pos_terminals INT DEFAULT 10,
+    status VARCHAR(32) DEFAULT 'active', -- active, suspended, expired, pending
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -37,6 +70,9 @@ CREATE TABLE IF NOT EXISTS "BRANCHES" (
     chain_id VARCHAR(64) REFERENCES "STORE_CHAINS"(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     code VARCHAR(64) NOT NULL,
+    branch_type VARCHAR(64) DEFAULT 'retail_outlet',
+    contact_person VARCHAR(255),
+    manager_user_id INT,
     address TEXT,
     address_line_2 TEXT,
     phone VARCHAR(64),
@@ -46,14 +82,30 @@ CREATE TABLE IF NOT EXISTS "BRANCHES" (
     city VARCHAR(128),
     postal_code VARCHAR(32),
     country VARCHAR(128) DEFAULT 'Pakistan',
+    status VARCHAR(32) DEFAULT 'active', -- active, inactive
+    opening_date DATE DEFAULT CURRENT_DATE,
     is_head_office BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ------------------------------------------------------------------------
--- 3. USERS & ACCESS CONTROL (RBAC)
+-- 3. ROLES, USERS & ACCESS CONTROL (RBAC)
 -- ------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS "ROLES" (
+    id VARCHAR(64) PRIMARY KEY,
+    chain_id VARCHAR(64) REFERENCES "STORE_CHAINS"(id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    base_role VARCHAR(32) NOT NULL DEFAULT 'cashier',
+    description TEXT,
+    branch_access VARCHAR(32) DEFAULT 'assigned', -- all, assigned
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+    matrix JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_system BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS "USERS" (
     id SERIAL PRIMARY KEY,
     chain_id VARCHAR(64) REFERENCES "STORE_CHAINS"(id) ON DELETE SET NULL,
@@ -61,12 +113,15 @@ CREATE TABLE IF NOT EXISTS "USERS" (
     username VARCHAR(64) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL,
     phone VARCHAR(64),
-    role VARCHAR(32) NOT NULL DEFAULT 'cashier', -- admin, manager, cashier, warehouse_staff, accountant
+    role VARCHAR(32) NOT NULL DEFAULT 'cashier', -- admin, manager, cashier, salesperson, inventory_manager, purchase_manager, warehouse_staff, accountant
+    custom_role_id VARCHAR(64),
     designation VARCHAR(128),
     employee_code VARCHAR(64),
     assigned_branch_id VARCHAR(64) DEFAULT 'all',
+    assigned_branches JSONB DEFAULT '[]'::jsonb,
     pos_pin VARCHAR(32),
     password_hash VARCHAR(255) NOT NULL,
+    account_status VARCHAR(32) DEFAULT 'active',
     is_super_admin BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     permissions JSONB DEFAULT '{
@@ -315,24 +370,79 @@ CREATE TABLE IF NOT EXISTS "ACTIVITY_LOGS" (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS "SUBSCRIPTION_HISTORY" (
+    id VARCHAR(64) PRIMARY KEY,
+    organization_id VARCHAR(64) REFERENCES "STORE_CHAINS"(id) ON DELETE CASCADE,
+    organization_name VARCHAR(255) NOT NULL,
+    previous_plan_id VARCHAR(64),
+    previous_plan_name VARCHAR(128),
+    new_plan_id VARCHAR(64),
+    new_plan_name VARCHAR(128) NOT NULL,
+    action VARCHAR(64) NOT NULL,
+    changed_by VARCHAR(128),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Non-destructive column migrations for existing databases
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS registration_number VARCHAR(128);
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS tax_id VARCHAR(128);
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS website VARCHAR(255);
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS country VARCHAR(128) DEFAULT 'Pakistan';
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS city VARCHAR(128) DEFAULT 'Lahore';
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS admin_username VARCHAR(128);
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS admin_phone VARCHAR(64);
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS plan_id VARCHAR(64);
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS subscription_start_date DATE DEFAULT CURRENT_DATE;
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS subscription_expiry_date DATE;
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS max_branches INT DEFAULT 5;
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS max_users INT DEFAULT 25;
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS max_pos_terminals INT DEFAULT 10;
+ALTER TABLE "STORE_CHAINS" ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active';
+
+ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS branch_type VARCHAR(64) DEFAULT 'retail_outlet';
+ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS contact_person VARCHAR(255);
+ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS manager_user_id INT;
+ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active';
+ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS opening_date DATE DEFAULT CURRENT_DATE;
+
+ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS custom_role_id VARCHAR(64);
+ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS assigned_branches JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS account_status VARCHAR(32) DEFAULT 'active';
+
+ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+ALTER TABLE "PAYMENTS" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+ALTER TABLE "EXPENSES" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+ALTER TABLE "CUSTOMERS" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+
 -- ========================================================================
 -- SEED DATA DUMP (ALL TABLES UPPERCASE)
 -- ========================================================================
 
--- Store Chains
-INSERT INTO "STORE_CHAINS" (id, name, code, business_type, industry, description, admin_email, admin_name, phone, address, currency, currency_symbol)
+-- Subscription Plans
+INSERT INTO "SUBSCRIPTION_PLANS" (id, name, description, monthly_price, annual_price, max_branches, max_users, max_pos_terminals, storage_limit_mb, available_modules, status)
+VALUES
+('plan-free', 'Free', 'Evaluation tier for single-outlet retail shops', 0.00, 0.00, 3, 10, 2, 512, '["dashboard","pos","inventory","sales","customers","payments"]', 'active'),
+('plan-starter', 'Starter', 'Essential retail POS for growing local businesses', 4900.00, 49000.00, 5, 15, 5, 2048, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses"]', 'active'),
+('plan-growth', 'Growth', 'Multi-branch retail chain operations with full analytics', 12500.00, 125000.00, 15, 50, 20, 10240, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses","reports","organization","users","audit_logs"]', 'active'),
+('plan-enterprise', 'Enterprise', 'Unlimited-scale corporate chains, custom roles & full ERP', 29000.00, 290000.00, 100, 500, 100, 102400, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses","reports","organization","users","settings","audit_logs"]', 'active')
+ON CONFLICT (id) DO NOTHING;
+
+-- Store Chains / Organizations
+INSERT INTO "STORE_CHAINS" (id, name, code, business_type, industry, description, admin_email, admin_name, admin_username, phone, address, city, country, currency, currency_symbol, plan_id, max_branches, max_users, max_pos_terminals, status, is_active)
 VALUES 
-('chain-default', 'Askari Departmental Store Chain', 'ASKARI', 'Supermarket & General Retail', 'Retail & Departmental Store', 'Premier departmental store and retail supermarket chain.', 'admin@askari.com', 'Askari System Admin', '+92 300 1234567', 'Main Boulevard, Gulberg III, Lahore', 'PKR', 'Rs.'),
-('chain-jks', 'JKS Cash & Carry', 'JKS-CC', 'Wholesale & Retail Supermarket', 'Cash & Carry Supermarket', 'Discount FMCG, grocery and household bulk cash & carry network.', 'admin@jks.com', 'JKS Administrator', '+92 321 9876543', 'Plot 12-A, Commercial Market, Phase 5 DHA, Lahore', 'PKR', 'Rs.')
+('chain-default', 'Askari Departmental Store Chain', 'ASKARI', 'Supermarket & General Retail', 'Retail & Departmental Store', 'Premier departmental store and retail supermarket chain.', 'admin@askari.com', 'Askari System Admin', 'admin', '+92 300 1234567', 'Main Boulevard, Gulberg III, Lahore', 'Lahore', 'Pakistan', 'PKR', 'Rs.', 'plan-enterprise', 100, 500, 100, 'active', TRUE),
+('chain-jks', 'JKS Cash & Carry', 'JKS-CC', 'Wholesale & Retail Supermarket', 'Cash & Carry Supermarket', 'Discount FMCG, grocery and household bulk cash & carry network.', 'jks@jkscashandcarry.com', 'JKS Store Admin', 'jks', '+92 321 9876543', 'Plot 12-A, Commercial Market, Phase 5 DHA, Lahore', 'Lahore', 'Pakistan', 'PKR', 'Rs.', 'plan-growth', 15, 50, 20, 'active', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 -- Branches
-INSERT INTO "BRANCHES" (id, chain_id, name, code, address, phone, is_head_office)
+INSERT INTO "BRANCHES" (id, chain_id, name, code, branch_type, address, phone, city, country, status, is_head_office)
 VALUES
-('br-1', 'chain-default', 'Gulberg III Shop', 'ASK-LHR-01', 'Main Boulevard, Gulberg III, Lahore', '+92 42 35710000', TRUE),
-('br-2', 'chain-default', 'Times Square Branch', 'ASK-NYC-01', '1500 Broadway, Times Square, New York', '+1 212-555-0199', FALSE),
-('jks-br-1', 'chain-jks', 'DHA Phase 5 Cash & Carry', 'JKS-DHA-01', 'Plot 12-A, Commercial Market, DHA Phase 5, Lahore', '+92 321 9876543', TRUE),
-('jks-br-2', 'chain-jks', 'Nespak Society Branch', 'JKS-NSP-01', 'Main Boulevard, Nespak Housing Society, Lahore', '+92 322 1122334', FALSE)
+('br-1', 'chain-default', 'Gulberg III Shop', 'ASK-LHR-01', 'head_office', 'Main Boulevard, Gulberg III, Lahore', '+92 42 35710000', 'Lahore', 'Pakistan', 'active', TRUE),
+('br-2', 'chain-default', 'Times Square Branch', 'ASK-NYC-01', 'retail_outlet', '1500 Broadway, Times Square, New York', '+1 212-555-0199', 'New York', 'USA', 'active', FALSE),
+('jks-br-1', 'chain-jks', 'DHA Phase 5 Cash & Carry', 'JKS-DHA-01', 'head_office', 'Plot 12-A, Commercial Market, DHA Phase 5, Lahore', '+92 321 9876543', 'Lahore', 'Pakistan', 'active', TRUE),
+('jks-br-2', 'chain-jks', 'Nespak Society Branch', 'JKS-NSP-01', 'retail_outlet', 'Main Boulevard, Nespak Housing Society, Lahore', '+92 322 1122334', 'Lahore', 'Pakistan', 'active', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
 -- Users (PIN / Passwords: '123456' for Mobin, '1234' for admins and cashiers)

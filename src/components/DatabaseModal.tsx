@@ -10,11 +10,11 @@ import {
   Copy,
   Check,
   X,
-  ExternalLink,
+  Download,
   Table as TableIcon
 } from 'lucide-react';
 import { databaseService, DbConnectionStatus } from '../lib/databaseService';
-import { TABLE_NAMES } from '../lib/storage';
+import { TABLE_NAMES, hydrateFromPostgresSnapshot } from '../lib/storage';
 
 interface DatabaseModalProps {
   isOpen: boolean;
@@ -25,39 +25,51 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
   const [status, setStatus] = useState<DbConnectionStatus>(databaseService.getLastStatus());
   const [loading, setLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Form state
   const [host, setHost] = useState(status.host || 'localhost');
   const [port, setPort] = useState(String(status.port || 5432));
   const [database, setDatabase] = useState(status.database || 'rozana');
   const [user, setUser] = useState(status.user || 'postgres');
-  const [password, setPassword] = useState('postgres');
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
     const unsub = databaseService.subscribe((s) => {
       setStatus(s);
-      setHost(s.host || 'localhost');
-      setPort(String(s.port || 5432));
-      setDatabase(s.database || 'rozana');
-      setUser(s.user || 'postgres');
     });
+    return () => unsub();
+  }, []);
 
+  useEffect(() => {
     if (isOpen) {
+      const current = databaseService.getLastStatus();
+      setHost(current.host || 'localhost');
+      setPort(String(current.port || 5432));
+      setDatabase(current.database || 'rozana');
+      setUser(current.user || 'postgres');
+      setErrorMsg(null);
       handleTestConnection();
     }
-
-    return () => unsub();
   }, [isOpen]);
 
   const handleTestConnection = async () => {
     setLoading(true);
     setSuccessMsg(null);
+    setErrorMsg(null);
     try {
       const res = await databaseService.checkStatus();
       if (res.connected) {
-        setSuccessMsg(`Successfully connected to PostgreSQL database "${res.database}" on port ${res.port}!`);
+        setHost(res.host || 'localhost');
+        setPort(String(res.port || 5432));
+        setDatabase(res.database || 'rozana');
+        setUser(res.user || 'postgres');
+        setSuccessMsg(
+          `Successfully connected to PostgreSQL database "${res.database}" on ${res.host}:${res.port}!`
+        );
       }
     } finally {
       setLoading(false);
@@ -68,22 +80,45 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
     e.preventDefault();
     setSaveLoading(true);
     setSuccessMsg(null);
+    setErrorMsg(null);
     try {
       const res = await databaseService.configure({
-        host,
+        host: host.trim() || 'localhost',
         port: parseInt(port, 10) || 5432,
-        database,
-        user,
-        password,
+        database: database.trim() || 'rozana',
+        user: user.trim() || 'postgres',
+        ...(password !== '' ? { password } : {}),
       });
 
-      if (res.success) {
-        setSuccessMsg(`Connection parameters updated! Connected to "${database}" on port ${port}.`);
+      if (res.success && res.status) {
+        setHost(res.status.host || host);
+        setSuccessMsg(
+          `Connected to "${res.status.database}" on ${res.status.host}:${res.status.port} and saved configuration to .env!`
+        );
       } else {
-        alert(`Failed to connect with provided settings: ${res.error}`);
+        setErrorMsg(res.error || 'Failed to connect with provided settings.');
       }
     } finally {
       setSaveLoading(false);
+    }
+  };
+
+  const handlePullFromPostgres = async () => {
+    setSyncLoading(true);
+    setSuccessMsg(null);
+    setErrorMsg(null);
+    try {
+      const snapshot = await databaseService.pullAllFromPostgres();
+      if (!snapshot) {
+        setErrorMsg('Could not pull records from PostgreSQL. Verify the database connection first.');
+        return;
+      }
+      const { syncedTables, totalRows } = hydrateFromPostgresSnapshot(snapshot);
+      setSuccessMsg(
+        `Synced ${totalRows} rows across ${syncedTables} tables from local PostgreSQL "${status.database}"!`
+      );
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -97,7 +132,20 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
 
   if (!isOpen) return null;
 
-  const expectedTables = Object.values(TABLE_NAMES);
+  const expectedTables = Object.values(TABLE_NAMES).filter(
+    (tbl) => tbl !== 'SUB_CATEGORIES' && tbl !== 'SETTINGS'
+  );
+
+  const isAuthError = Boolean(
+    status.error && /password authentication failed|28P01|SASL/i.test(status.error)
+  );
+  const isCloudHost =
+    typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1';
+  const isConnRefusedOnCloud =
+    isCloudHost &&
+    Boolean(status.error && /ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(status.error));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -129,24 +177,34 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Target Database: <span className="text-blue-300 font-mono font-medium">"rozana"</span> &bull; Port: <span className="text-blue-300 font-mono font-medium">5432</span>
+                Target Database:{' '}
+                <span className="text-blue-300 font-mono font-medium">"{status.database || 'rozana'}"</span>{' '}
+                &bull; Port: <span className="text-blue-300 font-mono font-medium">{status.port || 5432}</span>
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-200 text-sm">
+        <div className="p-6 overflow-y-auto space-y-5 flex-1 text-slate-200 text-sm">
           {successMsg && (
             <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 flex items-center gap-3 text-xs">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>{successMsg}</span>
+            </div>
+          )}
+
+          {errorMsg && (
+            <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-200 flex items-center gap-3 text-xs">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+              <span>{errorMsg}</span>
             </div>
           )}
 
@@ -175,26 +233,50 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
               <span className="text-xs text-slate-400 block mb-1">Uppercase Tables</span>
               <div className="text-base font-bold text-emerald-400 flex items-center gap-1.5">
                 <TableIcon className="w-4 h-4" />
-                <span>{status.tables ? status.tables.length : 15} Standardized</span>
+                <span>
+                  {status.connected && status.tables
+                    ? `${status.tables.length} Detected`
+                    : `${expectedTables.length} Expected`}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* If error, display diagnostic details */}
+          {/* Diagnostic details if disconnected */}
           {!status.connected && (
             <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-600/30 text-amber-200 text-xs space-y-2">
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <p className="font-semibold text-amber-100">
-                    Cannot reach PostgreSQL "rozana" on {status.host}:{status.port}
+                    Cannot reach PostgreSQL "{status.database || 'rozana'}" on {status.host}:{status.port}
                   </p>
                   <p className="text-amber-300/90 font-mono text-[11px]">
                     {status.error || 'Connection refused or credentials unverified.'}
                   </p>
-                  <p className="text-slate-300 pt-1">
-                    If your PostgreSQL server is on your local machine with a specific password, update the credentials below and click <strong>"Save & Reconnect"</strong>.
-                  </p>
+                  {isAuthError ? (
+                    <p className="text-slate-200 pt-0.5">
+                      PostgreSQL is running, but the password for user{' '}
+                      <strong className="font-mono text-white">{status.user || 'postgres'}</strong> does not
+                      match <code className="text-amber-300">.env</code>. Enter your local PostgreSQL password
+                      (same as DBeaver) below and click <strong>"Save & Reconnect"</strong> — it will be saved
+                      automatically to <code className="text-amber-300">.env</code>.
+                    </p>
+                  ) : isConnRefusedOnCloud ? (
+                    <p className="text-slate-200 pt-0.5">
+                      You are viewing the cloud preview URL (<code className="text-amber-300">{window.location.hostname}</code>).
+                      Cloud preview servers cannot access <code className="text-amber-300">localhost:5432</code> on
+                      your PC. Pull the latest code locally, run <code className="text-emerald-300">npm run dev</code>,
+                      and open <code className="text-emerald-300">http://localhost:3000</code> to connect to your
+                      local <code className="text-emerald-300">rozana</code> database.
+                    </p>
+                  ) : (
+                    <p className="text-slate-300 pt-0.5">
+                      Verify your PostgreSQL host, port (<code className="text-amber-300">5432</code>), database
+                      (<code className="text-amber-300">rozana</code>), username, and password below, then click{' '}
+                      <strong>"Save & Reconnect"</strong>.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -202,20 +284,33 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
 
           {/* Connection settings form */}
           <form onSubmit={handleSaveAndReconnect} className="bg-slate-800/50 border border-slate-700/70 rounded-xl p-4 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-700">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-700">
               <h3 className="font-semibold text-white flex items-center gap-2">
                 <Server className="w-4 h-4 text-blue-400" />
                 PostgreSQL Connection Parameters
               </h3>
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={loading}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                Test Connection
-              </button>
+              <div className="flex items-center gap-2">
+                {status.connected && (
+                  <button
+                    type="button"
+                    onClick={handlePullFromPostgres}
+                    disabled={syncLoading}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Download className={`w-3.5 h-3.5 ${syncLoading ? 'animate-bounce' : ''}`} />
+                    {syncLoading ? 'Syncing...' : 'Pull Data from rozana'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                  Test Connection
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -264,13 +359,17 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Password</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Password {isAuthError && <span className="text-amber-400">(Required)</span>}
+                </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  placeholder="postgres"
+                  className={`w-full px-3 py-1.5 bg-slate-900 border rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none ${
+                    isAuthError ? 'border-amber-500' : 'border-slate-700'
+                  }`}
+                  placeholder="Enter PostgreSQL password"
                 />
               </div>
 
@@ -278,7 +377,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 <button
                   type="submit"
                   disabled={saveLoading}
-                  className="w-full px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  className="w-full px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${saveLoading ? 'animate-spin' : ''}`} />
                   Save & Reconnect
@@ -292,12 +391,12 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-300 flex items-center gap-1.5">
                 <Shield className="w-4 h-4 text-emerald-400" />
-                Deploy / Re-apply Schema to Database "rozana"
+                Deploy / Re-apply Schema to Database "{database || 'rozana'}"
               </span>
               <button
                 type="button"
                 onClick={copyPsql}
-                className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition"
+                className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition cursor-pointer"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copied command' : 'Copy command'}
@@ -312,18 +411,33 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
           <div className="space-y-2.5">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-400" />
-              Standardized Uppercase PostgreSQL Tables
+              Standardized Uppercase PostgreSQL Tables ({expectedTables.length})
             </h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-xs">
               {expectedTables.map((tbl) => {
-                const isPresent = status.tables?.includes(tbl);
+                const isPresent = Boolean(status.connected && status.tables?.includes(tbl));
+                const rowCount = status.table_counts?.[tbl];
                 return (
                   <div
                     key={tbl}
-                    className="p-2 rounded-lg bg-slate-800/70 border border-slate-700/60 flex items-center justify-between font-mono text-[11px]"
+                    className={`p-2 rounded-lg border flex items-center justify-between font-mono text-[11px] ${
+                      isPresent
+                        ? 'bg-slate-800/80 border-emerald-700/50'
+                        : 'bg-slate-800/40 border-slate-700/50 opacity-80'
+                    }`}
                   >
                     <span className="text-white font-medium truncate">"{tbl}"</span>
-                    <span className="text-emerald-400 text-xs">✓</span>
+                    {isPresent ? (
+                      <span className="text-emerald-400 text-[10px] font-bold shrink-0 ml-1">
+                        {rowCount !== undefined ? `${rowCount}✓` : '✓'}
+                      </span>
+                    ) : status.connected ? (
+                      <span className="text-amber-400 text-[10px] shrink-0 ml-1" title="Table missing">
+                        ?
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 text-[10px] shrink-0 ml-1">-</span>
+                    )}
                   </div>
                 );
               })}
@@ -333,10 +447,11 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
 
         {/* Footer */}
         <div className="px-6 py-3.5 bg-slate-850 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
-          <span>Targeting PostgreSQL 12+ on port 5432</span>
+          <span>Targeting PostgreSQL 12+ on port {status.port || 5432}</span>
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-medium transition"
+            className="px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-medium transition cursor-pointer"
           >
             Close
           </button>

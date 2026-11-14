@@ -26,7 +26,10 @@ import {
   getUsers,
   getSettings,
   loginUser,
-  getIsAuthenticated
+  getIsAuthenticated,
+  getOrganizationAccessState,
+  getEffectiveOrgLimits,
+  isUserSuperAdmin
 } from '../lib/storage';
 import { StoreChain, User } from '../types';
 import { RegisterStoreChainModal } from './RegisterStoreChainModal';
@@ -53,17 +56,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const activeChain = storeChains.find((c) => c.id === selectedChainId) || getActiveStoreChain();
+  const orgAccess = getOrganizationAccessState(activeChain);
+  const orgLimits = getEffectiveOrgLimits(activeChain);
   const currentSettings = getSettings();
   const currentChainUsers = getUsers();
 
   // Update chain selection
   const handleChainChange = (chainId: string) => {
     setSelectedChainId(chainId);
-    setActiveStoreChain(chainId);
+    setActiveStoreChain(chainId, true);
     setErrorMsg(null);
 
+    const updatedSettings = getSettings();
+    if (updatedSettings.branches && updatedSettings.branches.length > 0) {
+      setSelectedBranchId(updatedSettings.branches[0].id);
+    }
+
     // Refresh users for the new chain and prefill top user
-    const chainUsers = getUsers();
+    const chainUsers = getUsers().filter((u) => chainId === 'chain-default' || !isUserSuperAdmin(u));
     if (chainUsers && chainUsers.length > 0) {
       setIdentifier(chainUsers[0].email || chainUsers[0].username);
       setPassword(chainUsers[0].pos_pin || chainUsers[0].password || '1234');
@@ -173,16 +183,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </div>
 
               {/* Active Organization Info Box */}
-              <div className="p-4 bg-slate-800/60 border border-slate-700/80 rounded-2xl space-y-2">
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+              <div className="p-4 bg-slate-800/60 border border-slate-700/80 rounded-2xl space-y-2.5">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between gap-2">
                   <span>Selected Organization</span>
                   <span className="text-indigo-400 font-mono">CODE: {activeChain.code}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm shrink-0 border border-indigo-400/40">
-                    {activeChain.code || 'SC'}
+                  <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm shrink-0 border border-indigo-400/40 overflow-hidden">
+                    {activeChain.logo_url ? (
+                      <img src={activeChain.logo_url} alt={activeChain.name} className="w-full h-full object-contain bg-white p-0.5" />
+                    ) : (
+                      activeChain.code || 'SC'
+                    )}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <h3 className="text-sm font-bold text-white truncate">
                       {activeChain.name}
                     </h3>
@@ -190,6 +204,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                       {activeChain.address || 'Head Office Branch'}
                     </p>
                   </div>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-700/60 text-[10px]">
+                  <span className="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-bold">
+                    {orgLimits.plan.name} Plan
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full font-bold border uppercase ${
+                      orgAccess.blocked
+                        ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    }`}
+                  >
+                    {orgAccess.status}
+                  </span>
                 </div>
               </div>
 
@@ -235,6 +263,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 Select your store chain organization and enter credentials to log in.
               </p>
             </div>
+
+            {/* Organization Suspended / Expired Warning */}
+            {orgAccess.blocked && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold text-amber-300">Organization Access Restricted ({orgAccess.status.toUpperCase()})</p>
+                  <p className="text-[11px] text-amber-200/90 mt-0.5">
+                    {orgAccess.reason} Only Global Admin (mobin) can sign in to manage or reactivate this organization.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Error Banner */}
             {errorMsg && (
@@ -384,7 +425,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {currentChainUsers.slice(0, 6).map((u) => (
+                {currentChainUsers
+                  .filter((u) => selectedChainId === 'chain-default' || !isUserSuperAdmin(u))
+                  .slice(0, 6)
+                  .map((u) => (
                   <button
                     key={u.id}
                     type="button"

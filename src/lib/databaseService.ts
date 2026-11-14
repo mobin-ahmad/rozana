@@ -1,4 +1,18 @@
-import { TABLE_NAMES, TableName } from './storage';
+import { TABLE_NAMES, TableName, getActiveChainId, getCurrentUser, isUserSuperAdmin, getSettings } from './storage';
+
+function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const user = getCurrentUser();
+  const chainId = getActiveChainId();
+  const settings = getSettings();
+  return {
+    'x-rozana-chain-id': chainId || 'chain-default',
+    'x-rozana-branch-id': settings?.active_branch_id || '',
+    'x-rozana-user-id': String(user?.id || 1),
+    'x-rozana-role': user?.role || 'cashier',
+    'x-rozana-super-admin': isUserSuperAdmin(user) ? 'true' : 'false',
+    ...(extra || {}),
+  };
+}
 
 export interface DbConnectionStatus {
   connected: boolean;
@@ -9,8 +23,10 @@ export interface DbConnectionStatus {
   server_version?: string;
   is_target_rozana?: boolean;
   tables?: string[];
+  table_counts?: Record<string, number>;
   total_tables?: number;
   error?: string;
+  error_code?: string;
   hint?: string;
   timestamp: string;
 }
@@ -77,6 +93,7 @@ export const databaseService = {
     database?: string;
     user?: string;
     password?: string;
+    connectionUrl?: string;
   }): Promise<{ success: boolean; error?: string; status?: DbConnectionStatus }> {
     try {
       const res = await fetch('/api/db/configure', {
@@ -99,7 +116,9 @@ export const databaseService = {
   async getTableRecords<T = unknown>(tableName: TableName | string): Promise<T[]> {
     try {
       const upperName = tableName.toUpperCase();
-      const res = await fetch(`/api/table/${encodeURIComponent(upperName)}`);
+      const res = await fetch(`/api/table/${encodeURIComponent(upperName)}`, {
+        headers: buildAuthHeaders(),
+      });
       if (!res.ok) return [];
       const json = await res.json();
       return json.data || [];
@@ -113,7 +132,7 @@ export const databaseService = {
       const upperName = tableName.toUpperCase();
       const res = await fetch(`/api/table/${encodeURIComponent(upperName)}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(record),
       });
       if (!res.ok) return null;
@@ -129,7 +148,7 @@ export const databaseService = {
       const upperName = tableName.toUpperCase();
       const res = await fetch(`/api/table/${encodeURIComponent(upperName)}/${encodeURIComponent(id)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(record),
       });
       if (!res.ok) return null;
@@ -145,6 +164,7 @@ export const databaseService = {
       const upperName = tableName.toUpperCase();
       const res = await fetch(`/api/table/${encodeURIComponent(upperName)}/${encodeURIComponent(id)}`, {
         method: 'DELETE',
+        headers: buildAuthHeaders(),
       });
       return res.ok;
     } catch {
@@ -154,7 +174,9 @@ export const databaseService = {
 
   async pullAllFromPostgres(): Promise<Record<string, unknown[]> | null> {
     try {
-      const res = await fetch('/api/db/export-all');
+      const res = await fetch('/api/db/export-all', {
+        headers: buildAuthHeaders(),
+      });
       if (!res.ok) return null;
       const json = await res.json();
       return json.data;

@@ -1,5 +1,13 @@
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
-import { getCurrentUser, getIsAuthenticated, logoutUser, subscribeToStorage, isUserSuperAdmin } from './lib/storage';
+import {
+  getCurrentUser,
+  getIsAuthenticated,
+  logoutUser,
+  subscribeToStorage,
+  isUserSuperAdmin,
+  getActiveStoreChain,
+  getOrganizationAccessState
+} from './lib/storage';
 import { User } from './types';
 import { LoginScreen } from './components/LoginScreen';
 import { Navbar } from './components/Navbar';
@@ -17,9 +25,10 @@ import { Reports } from './components/Reports';
 import { UserManagement } from './components/UserManagement';
 import { AuditLogs } from './components/AuditLogs';
 import { Settings } from './components/Settings';
-import { BusinessProfiles } from './components/BusinessProfiles';
+import { OrganizationsPlans } from './components/OrganizationsPlans';
+import { OrganizationManagement } from './components/OrganizationManagement';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, RotateCcw, Lock, LogOut } from 'lucide-react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -119,7 +128,36 @@ export function App() {
     return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
+  const activeChain = getActiveStoreChain();
+  const orgAccess = getOrganizationAccessState(activeChain);
+
   const renderContent = () => {
+    if (!isUserSuperAdmin(currentUser) && orgAccess.blocked) {
+      return (
+        <div className="p-8 max-w-xl mx-auto my-12 bg-white rounded-2xl border border-rose-200 shadow-md text-center space-y-4">
+          <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h2 className="text-lg font-extrabold text-slate-900">
+            Organization {orgAccess.status.toUpperCase()}
+          </h2>
+          <p className="text-xs text-slate-600 leading-relaxed">{orgAccess.reason}</p>
+          <p className="text-[11px] text-slate-400">
+            Please contact your Global Platform Administrator to reactivate or renew this organization&apos;s subscription.
+          </p>
+          <div className="pt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" /> Sign Out
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     switch (activeTab) {
       case 'zpos':
         return <RetailZPos userRole={currentUser?.role || 'cashier'} onNavigateToInvoices={() => setActiveTab('sales')} />;
@@ -142,6 +180,15 @@ export function App() {
         return <Expenses userRole={currentUser?.role || 'cashier'} />;
       case 'reports':
         return <Reports />;
+      case 'org-management':
+        return (
+          <OrganizationManagement
+            currentUser={currentUser}
+            onUserSwitched={(u) => {
+              setCurrentUserState(u);
+            }}
+          />
+        );
       case 'users':
         return (
           <UserManagement
@@ -151,14 +198,15 @@ export function App() {
             }}
           />
         );
+      case 'organizations':
       case 'businesses':
         if (!isUserSuperAdmin(currentUser)) {
           return <Dashboard userRole={currentUser?.role || 'cashier'} onNavigate={(tab) => setActiveTab(tab)} />;
         }
         return (
-          <BusinessProfiles
+          <OrganizationsPlans
             currentUser={currentUser}
-            onSwitchStore={() => {
+            onSwitchOrganization={() => {
               setCurrentUserState(getCurrentUser());
               setActiveTab('dashboard');
             }}

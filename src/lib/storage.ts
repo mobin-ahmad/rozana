@@ -18,7 +18,16 @@ import {
   ImportLog,
   UserRole,
   WoodStockStatus,
-  StoreChain
+  StoreChain,
+  StoreBranch,
+  SubscriptionPlan,
+  SubscriptionHistoryEntry,
+  OrganizationStatus,
+  RoleDefinition,
+  GranularPermissionMatrix,
+  RoleModuleKey,
+  ModulePermissionActions,
+  UserPermissions
 } from '../types';
 import { defaultCurrencies } from './currency';
 import { formatCurrency } from './cft';
@@ -62,6 +71,9 @@ export const TABLE_NAMES = {
   EXPENSES: 'EXPENSES',
   ACTIVITY_LOGS: 'ACTIVITY_LOGS',
   SETTINGS: 'SETTINGS',
+  SUBSCRIPTION_PLANS: 'SUBSCRIPTION_PLANS',
+  SUBSCRIPTION_HISTORY: 'SUBSCRIPTION_HISTORY',
+  ROLES: 'ROLES',
 } as const;
 
 export type TableName = (typeof TABLE_NAMES)[keyof typeof TABLE_NAMES];
@@ -88,6 +100,9 @@ const STORAGE_KEYS = {
   STORE_CHAINS: 'STORE_CHAINS',
   ACTIVE_CHAIN_ID: 'ACTIVE_CHAIN_ID',
   IS_AUTHENTICATED: 'IS_AUTHENTICATED',
+  SUBSCRIPTION_PLANS: 'SUBSCRIPTION_PLANS',
+  SUBSCRIPTION_HISTORY: 'SUBSCRIPTION_HISTORY',
+  ROLES: 'ROLES',
 };
 
 export const MOBIN_SUPER_ADMIN: User = {
@@ -129,19 +144,109 @@ export function isUserSuperAdmin(user?: User | null): boolean {
   return (user.username || '').toLowerCase() === 'mobin' || user.is_super_admin === true;
 }
 
+export const ALL_MODULE_KEYS: RoleModuleKey[] = [
+  'dashboard',
+  'pos',
+  'inventory',
+  'purchases',
+  'sales',
+  'customers',
+  'suppliers',
+  'payments',
+  'expenses',
+  'reports',
+  'organization',
+  'users',
+  'settings',
+  'audit_logs',
+];
+
+export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'plan-free',
+    name: 'Free',
+    description: 'Starter plan for single-outlet retail shops and trial evaluation.',
+    monthly_price: 0,
+    annual_price: 0,
+    max_branches: 2,
+    max_users: 10,
+    max_pos_terminals: 2,
+    storage_limit_mb: 500,
+    available_modules: ['dashboard', 'pos', 'inventory', 'sales', 'customers', 'organization', 'users'],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'plan-starter',
+    name: 'Starter',
+    description: 'Essential retail POS & ledger management for growing stores.',
+    monthly_price: 29,
+    annual_price: 290,
+    max_branches: 5,
+    max_users: 25,
+    max_pos_terminals: 5,
+    storage_limit_mb: 2048,
+    available_modules: ['dashboard', 'pos', 'inventory', 'purchases', 'sales', 'customers', 'suppliers', 'payments', 'organization', 'users'],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'plan-growth',
+    name: 'Growth',
+    description: 'Multi-branch retail operations with expenses, reports, and role controls.',
+    monthly_price: 79,
+    annual_price: 790,
+    max_branches: 15,
+    max_users: 75,
+    max_pos_terminals: 20,
+    storage_limit_mb: 10240,
+    available_modules: ['dashboard', 'pos', 'inventory', 'purchases', 'sales', 'customers', 'suppliers', 'payments', 'expenses', 'reports', 'organization', 'users', 'audit_logs'],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'plan-enterprise',
+    name: 'Enterprise',
+    description: 'Full-scale enterprise chain control with unlimited scalability and audit trail.',
+    monthly_price: 199,
+    annual_price: 1990,
+    max_branches: 100,
+    max_users: 500,
+    max_pos_terminals: 150,
+    storage_limit_mb: 51200,
+    available_modules: [...ALL_MODULE_KEYS],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00.000Z',
+  },
+];
+
 export const INITIAL_STORE_CHAINS: StoreChain[] = [
   {
     id: 'chain-default',
     name: 'Askari Departmental Store Chain',
     code: 'ASKARI',
-    business_type: 'Timber & Building Supplies',
-    industry: 'Construction & Wood POS',
-    description: 'Premier timber mart and general retail departmental store network.',
+    business_type: 'Departmental Store & Supply Chain',
+    industry: 'Retail & Wholesale Supply',
+    description: 'Premier wholesale supply and general retail departmental store network.',
+    registration_number: 'REG-ASK-2026',
+    tax_id: 'NTN-441029-1',
+    website: 'https://askari-stores.example.com',
+    country: 'Pakistan',
+    city: 'Lahore',
     logo_url: '',
     admin_email: 'admin@askari.com',
     admin_name: 'Askari System Admin',
+    admin_username: 'admin',
+    admin_phone: '+92 300 1234567',
     phone: '+92 300 1234567',
     address: 'Main Boulevard, Gulberg, Lahore, Pakistan',
+    plan_id: 'plan-enterprise',
+    subscription_start_date: '2026-01-01',
+    subscription_expiry_date: '2028-12-31',
+    max_branches: 100,
+    max_users: 500,
+    max_pos_terminals: 150,
+    status: 'active',
     created_at: '2026-01-01T00:00:00.000Z',
     is_active: true,
   },
@@ -152,17 +257,211 @@ export const INITIAL_STORE_CHAINS: StoreChain[] = [
     business_type: 'Cash & Carry / Departmental Mart',
     industry: 'Retail & Wholesale Cash & Carry',
     description: 'Premier cash & carry and retail departmental wholesale network.',
+    registration_number: 'REG-JKS-2026',
+    tax_id: 'NTN-882190-4',
+    country: 'Pakistan',
+    city: 'Lahore',
     logo_url: '',
     admin_email: 'jks@jkscashandcarry.com',
     admin_name: 'JKS Store Administrator',
+    admin_username: 'jks',
+    admin_phone: '+92 321 9876543',
     phone: '+92 321 9876543',
     address: 'Main Boulevard, Gulberg, Lahore, Pakistan',
+    plan_id: 'plan-growth',
+    subscription_start_date: '2026-01-15',
+    subscription_expiry_date: '2027-01-15',
+    max_branches: 15,
+    max_users: 75,
+    max_pos_terminals: 20,
+    status: 'active',
     created_at: '2026-01-15T00:00:00.000Z',
     is_active: true,
   },
 ];
 
 export const DEFAULT_STORE_CHAIN: StoreChain = INITIAL_STORE_CHAINS[0];
+
+// Subscription Plans Management (Global)
+export function getSubscriptionPlans(): SubscriptionPlan[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SUBSCRIPTION_PLANS);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(DEFAULT_SUBSCRIPTION_PLANS));
+      return DEFAULT_SUBSCRIPTION_PLANS;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(DEFAULT_SUBSCRIPTION_PLANS));
+      return DEFAULT_SUBSCRIPTION_PLANS;
+    }
+    return parsed;
+  } catch {
+    return DEFAULT_SUBSCRIPTION_PLANS;
+  }
+}
+
+export function getPlanById(planId?: string): SubscriptionPlan {
+  const plans = getSubscriptionPlans();
+  return plans.find((p) => p.id === planId) || plans[0] || DEFAULT_SUBSCRIPTION_PLANS[0];
+}
+
+export function saveSubscriptionPlan(
+  planData: Partial<SubscriptionPlan> & { name: string }
+): { success: boolean; message: string; plan?: SubscriptionPlan } {
+  const plans = getSubscriptionPlans();
+  const cleanName = planData.name.trim();
+  if (!cleanName) {
+    return { success: false, message: 'Plan name is required.' };
+  }
+
+  if (planData.id) {
+    const idx = plans.findIndex((p) => p.id === planData.id);
+    if (idx === -1) return { success: false, message: 'Subscription plan not found.' };
+    plans[idx] = {
+      ...plans[idx],
+      ...planData,
+      name: cleanName,
+      max_branches: Math.max(1, Number(planData.max_branches ?? plans[idx].max_branches)),
+      max_users: Math.max(1, Number(planData.max_users ?? plans[idx].max_users)),
+      max_pos_terminals: Math.max(1, Number(planData.max_pos_terminals ?? plans[idx].max_pos_terminals)),
+      storage_limit_mb: Math.max(100, Number(planData.storage_limit_mb ?? plans[idx].storage_limit_mb)),
+      monthly_price: Math.max(0, Number(planData.monthly_price ?? plans[idx].monthly_price)),
+      annual_price: Math.max(0, Number(planData.annual_price ?? plans[idx].annual_price)),
+      updated_at: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(plans));
+    logActivity('UPDATE', 'SUBSCRIPTION_PLANS', plans[idx].id, `Updated subscription plan "${plans[idx].name}"`);
+    notifyStorageChange();
+    return { success: true, message: `Plan "${plans[idx].name}" updated successfully.`, plan: plans[idx] };
+  }
+
+  if (plans.some((p) => p.name.toLowerCase() === cleanName.toLowerCase())) {
+    return { success: false, message: 'A subscription plan with this name already exists.' };
+  }
+
+  const newPlan: SubscriptionPlan = {
+    id: `plan-${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`,
+    name: cleanName,
+    description: planData.description || '',
+    monthly_price: Math.max(0, Number(planData.monthly_price ?? 0)),
+    annual_price: Math.max(0, Number(planData.annual_price ?? 0)),
+    max_branches: Math.max(1, Number(planData.max_branches ?? 3)),
+    max_users: Math.max(1, Number(planData.max_users ?? 15)),
+    max_pos_terminals: Math.max(1, Number(planData.max_pos_terminals ?? 5)),
+    storage_limit_mb: Math.max(100, Number(planData.storage_limit_mb ?? 1024)),
+    available_modules:
+      Array.isArray(planData.available_modules) && planData.available_modules.length > 0
+        ? planData.available_modules
+        : ['dashboard', 'pos', 'inventory', 'sales', 'customers', 'organization', 'users'],
+    status: planData.status || 'active',
+    created_at: new Date().toISOString(),
+  };
+
+  const updated = [...plans, newPlan];
+  localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(updated));
+  logActivity('CREATE', 'SUBSCRIPTION_PLANS', newPlan.id, `Created subscription plan "${newPlan.name}"`);
+  notifyStorageChange();
+  return { success: true, message: `Subscription plan "${newPlan.name}" created.`, plan: newPlan };
+}
+
+export function toggleSubscriptionPlanStatus(planId: string): { success: boolean; message: string } {
+  const plans = getSubscriptionPlans();
+  const idx = plans.findIndex((p) => p.id === planId);
+  if (idx === -1) return { success: false, message: 'Plan not found.' };
+  plans[idx].status = plans[idx].status === 'active' ? 'inactive' : 'active';
+  plans[idx].updated_at = new Date().toISOString();
+  localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(plans));
+  logActivity('TOGGLE_STATUS', 'SUBSCRIPTION_PLANS', planId, `Set plan "${plans[idx].name}" to ${plans[idx].status}`);
+  notifyStorageChange();
+  return { success: true, message: `Plan "${plans[idx].name}" is now ${plans[idx].status}.` };
+}
+
+export function getSubscriptionHistory(orgId?: string): SubscriptionHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY);
+    const list: SubscriptionHistoryEntry[] = raw ? JSON.parse(raw) : [];
+    const safeList = Array.isArray(list) ? list : [];
+    return orgId ? safeList.filter((h) => h.organization_id === orgId) : safeList;
+  } catch {
+    return [];
+  }
+}
+
+export function recordSubscriptionHistory(entry: Omit<SubscriptionHistoryEntry, 'id' | 'created_at'>): void {
+  const existing = getSubscriptionHistory();
+  const record: SubscriptionHistoryEntry = {
+    ...entry,
+    id: `subh-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    created_at: new Date().toISOString(),
+  };
+  localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify([record, ...existing].slice(0, 200)));
+}
+
+export function getEffectiveOrgLimits(chain?: StoreChain | null): {
+  plan: SubscriptionPlan;
+  maxBranches: number;
+  maxUsers: number;
+  maxPosTerminals: number;
+  availableModules: string[];
+} {
+  const targetChain = chain || getActiveStoreChain();
+  const plan = getPlanById(targetChain?.plan_id);
+  return {
+    plan,
+    maxBranches: Number(targetChain?.max_branches && targetChain.max_branches > 0 ? targetChain.max_branches : plan.max_branches),
+    maxUsers: Number(targetChain?.max_users && targetChain.max_users > 0 ? targetChain.max_users : plan.max_users),
+    maxPosTerminals: Number(targetChain?.max_pos_terminals && targetChain.max_pos_terminals > 0 ? targetChain.max_pos_terminals : plan.max_pos_terminals),
+    availableModules: plan.available_modules && plan.available_modules.length > 0 ? plan.available_modules : [...ALL_MODULE_KEYS],
+  };
+}
+
+export function getOrganizationAccessState(chain?: StoreChain | null): {
+  blocked: boolean;
+  status: OrganizationStatus;
+  reason: string;
+} {
+  const target = chain || getActiveStoreChain();
+  const derivedStatus: OrganizationStatus =
+    target.status || (target.is_active === false ? 'suspended' : 'active');
+
+  if (derivedStatus === 'suspended' || target.is_active === false) {
+    return {
+      blocked: true,
+      status: 'suspended',
+      reason: `Organization "${target.name}" is currently suspended by platform administration.`,
+    };
+  }
+  if (derivedStatus === 'expired') {
+    return {
+      blocked: true,
+      status: 'expired',
+      reason: `Organization "${target.name}" subscription has expired. Please renew your plan to continue operations.`,
+    };
+  }
+  if (derivedStatus === 'pending') {
+    return {
+      blocked: true,
+      status: 'pending',
+      reason: `Organization "${target.name}" is pending activation.`,
+    };
+  }
+  if (target.subscription_expiry_date) {
+    const exp = new Date(target.subscription_expiry_date);
+    if (!Number.isNaN(exp.getTime())) {
+      const endOfExpiry = new Date(exp);
+      endOfExpiry.setHours(23, 59, 59, 999);
+      if (Date.now() > endOfExpiry.getTime()) {
+        return {
+          blocked: true,
+          status: 'expired',
+          reason: `Subscription expired on ${target.subscription_expiry_date}. Please contact platform support to renew.`,
+        };
+      }
+    }
+  }
+  return { blocked: false, status: 'active', reason: '' };
+}
 
 export function getStoreChains(): StoreChain[] {
   try {
@@ -176,18 +475,39 @@ export function getStoreChains(): StoreChain[] {
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(INITIAL_STORE_CHAINS));
       return INITIAL_STORE_CHAINS;
     }
-    // Ensure JKS is included and named 'JKS Cash & Carry'
-    const jksIdx = parsed.findIndex((c) => c.id === 'chain-jks' || c.code === 'JKS');
+    let dirty = false;
+    const normalized: StoreChain[] = parsed.map((c): StoreChain => {
+      const defMatch = INITIAL_STORE_CHAINS.find((d) => d.id === c.id);
+      const nextStatus: OrganizationStatus = c.status || (c.is_active === false ? 'suspended' : 'active');
+      const nextPlanId = c.plan_id || defMatch?.plan_id || (c.id === 'chain-default' ? 'plan-enterprise' : 'plan-free');
+      const planObj = getPlanById(nextPlanId);
+      if (!c.plan_id || !c.status || !c.max_branches || !c.max_users) {
+        dirty = true;
+      }
+      return {
+        ...defMatch,
+        ...c,
+        name: c.id === 'chain-jks' ? 'JKS Cash & Carry' : c.name,
+        admin_email: c.id === 'chain-jks' ? 'jks@jkscashandcarry.com' : c.admin_email,
+        plan_id: nextPlanId,
+        status: nextStatus,
+        is_active: nextStatus === 'active',
+        max_branches: c.max_branches || planObj.max_branches,
+        max_users: c.max_users || planObj.max_users,
+        max_pos_terminals: c.max_pos_terminals || planObj.max_pos_terminals,
+        subscription_start_date: c.subscription_start_date || (c.created_at ? c.created_at.split('T')[0] : '2026-01-01'),
+        subscription_expiry_date: c.subscription_expiry_date || '2027-12-31',
+      };
+    });
+    const jksIdx = normalized.findIndex((c) => c.id === 'chain-jks' || c.code === 'JKS');
     if (jksIdx === -1) {
-      const merged = [...parsed, INITIAL_STORE_CHAINS[1]];
-      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(merged));
-      return merged;
-    } else if (parsed[jksIdx].name !== 'JKS Cash & Carry') {
-      parsed[jksIdx].name = 'JKS Cash & Carry';
-      parsed[jksIdx].admin_email = 'jks@jkscashandcarry.com';
-      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(parsed));
+      normalized.push(INITIAL_STORE_CHAINS[1]);
+      dirty = true;
     }
-    return parsed;
+    if (dirty) {
+      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return INITIAL_STORE_CHAINS;
   }
@@ -210,13 +530,11 @@ export function getActiveStoreChain(): StoreChain {
 export function setActiveStoreChain(chainId: string, allowPreAuth: boolean = false): boolean {
   const current = getCurrentUser();
   const isAuth = getIsAuthenticated();
-  // Strictly enforce: Non-super-admins can NEVER switch store chains
   if (isAuth && !isUserSuperAdmin(current) && !allowPreAuth) {
     console.warn('Unauthorized: Only Global Super Administrator can switch store organizations.');
     return false;
   }
   localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, chainId);
-  // If current logged-in user is Mobin (Super Admin), ensure he remains current user in new chain
   if (current && isUserSuperAdmin(current)) {
     const targetKey = chainId === 'chain-default' ? STORAGE_KEYS.CURRENT_USER : `${STORAGE_KEYS.CURRENT_USER}_${chainId}`;
     localStorage.setItem(targetKey, JSON.stringify(MOBIN_SUPER_ADMIN));
@@ -231,52 +549,154 @@ export function updateStoreChain(
 ): { success: boolean; message: string; chain?: StoreChain } {
   const chains = getStoreChains();
   const idx = chains.findIndex((c) => c.id === chainId);
-  if (idx === -1) return { success: false, message: 'Store chain not found' };
+  if (idx === -1) return { success: false, message: 'Organization not found' };
 
+  const updatedStatus = data.status || chains[idx].status || (data.is_active === false ? 'suspended' : 'active');
   chains[idx] = {
     ...chains[idx],
     ...data,
+    status: updatedStatus,
+    is_active: updatedStatus === 'active',
   };
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(chains));
 
-  // Also update business_name in that chain's settings if name changed
-  if (data.name) {
-    const settingsKey = chainId === 'chain-default' ? STORAGE_KEYS.SETTINGS : `${STORAGE_KEYS.SETTINGS}_${chainId}`;
-    try {
-      const rawSettings = localStorage.getItem(settingsKey);
-      if (rawSettings) {
-        const s = JSON.parse(rawSettings);
-        s.business_name = data.name;
-        if (data.address) s.business_address = data.address;
-        if (data.phone) s.business_phone = data.phone;
-        if (data.logo_url !== undefined) s.logo_url = data.logo_url;
-        localStorage.setItem(settingsKey, JSON.stringify(s));
-      }
-    } catch {
-      // ignore
+  const settingsKey = chainId === 'chain-default' ? STORAGE_KEYS.SETTINGS : `${STORAGE_KEYS.SETTINGS}_${chainId}`;
+  try {
+    const rawSettings = localStorage.getItem(settingsKey);
+    if (rawSettings) {
+      const s = JSON.parse(rawSettings);
+      if (data.name) s.business_name = data.name;
+      if (data.address) s.business_address = data.address;
+      if (data.phone) s.business_phone = data.phone;
+      if (data.logo_url !== undefined) s.logo_url = data.logo_url;
+      if (data.tax_id !== undefined) s.tax_id = data.tax_id;
+      if (data.registration_number !== undefined) s.registration_number = data.registration_number;
+      if (data.website !== undefined) s.website = data.website;
+      if (data.country !== undefined) s.country = data.country;
+      if (data.city !== undefined) s.city = data.city;
+      localStorage.setItem(settingsKey, JSON.stringify(s));
     }
+  } catch {
+    // ignore
   }
 
+  logActivity('UPDATE', 'STORE_CHAINS', chainId, `Updated organization "${chains[idx].name}"`);
   notifyStorageChange();
-  return { success: true, message: 'Business Profile updated successfully', chain: chains[idx] };
+  return { success: true, message: 'Organization updated successfully', chain: chains[idx] };
+}
+
+export function setOrganizationStatus(
+  chainId: string,
+  status: OrganizationStatus
+): { success: boolean; message: string; chain?: StoreChain } {
+  const chains = getStoreChains();
+  const idx = chains.findIndex((c) => c.id === chainId);
+  if (idx === -1) return { success: false, message: 'Organization not found' };
+  if (chainId === 'chain-default' && status !== 'active') {
+    return { success: false, message: 'Primary platform host organization cannot be suspended or deactivated.' };
+  }
+
+  const prevStatus = chains[idx].status || 'active';
+  chains[idx].status = status;
+  chains[idx].is_active = status === 'active';
+  localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(chains));
+
+  const currentUser = getCurrentUser();
+  const plan = getPlanById(chains[idx].plan_id);
+  recordSubscriptionHistory({
+    organization_id: chainId,
+    organization_name: chains[idx].name,
+    previous_plan_id: plan.id,
+    previous_plan_name: plan.name,
+    new_plan_id: plan.id,
+    new_plan_name: plan.name,
+    action: 'status_changed',
+    changed_by: currentUser?.full_name || 'Global Admin',
+    notes: `Status changed from ${prevStatus} to ${status}`,
+  });
+
+  logActivity(
+    status === 'active' ? 'ACTIVATE' : 'SUSPEND',
+    'STORE_CHAINS',
+    chainId,
+    `Changed organization "${chains[idx].name}" status to ${status.toUpperCase()}`
+  );
+  notifyStorageChange();
+  return { success: true, message: `Organization "${chains[idx].name}" is now ${status}.`, chain: chains[idx] };
 }
 
 export function toggleStoreChainStatus(chainId: string): { success: boolean; message: string } {
   const chains = getStoreChains();
   const chain = chains.find((c) => c.id === chainId);
-  if (!chain) return { success: false, message: 'Business Profile not found' };
-  if (chain.id === 'chain-default') {
-    return { success: false, message: 'Default store chain cannot be deactivated' };
+  if (!chain) return { success: false, message: 'Organization not found' };
+  const nextStatus: OrganizationStatus = chain.status === 'active' && chain.is_active ? 'suspended' : 'active';
+  return setOrganizationStatus(chainId, nextStatus);
+}
+
+export function assignOrganizationPlan(
+  chainId: string,
+  planId: string,
+  overrides?: {
+    subscription_start_date?: string;
+    subscription_expiry_date?: string;
+    max_branches?: number;
+    max_users?: number;
+    max_pos_terminals?: number;
   }
-  chain.is_active = !chain.is_active;
+): { success: boolean; message: string; chain?: StoreChain } {
+  const chains = getStoreChains();
+  const idx = chains.findIndex((c) => c.id === chainId);
+  if (idx === -1) return { success: false, message: 'Organization not found' };
+
+  const newPlan = getPlanById(planId);
+  const oldPlan = getPlanById(chains[idx].plan_id);
+  const action: SubscriptionHistoryEntry['action'] =
+    oldPlan.id === newPlan.id
+      ? 'renewed'
+      : newPlan.monthly_price > oldPlan.monthly_price
+      ? 'upgraded'
+      : newPlan.monthly_price < oldPlan.monthly_price
+      ? 'downgraded'
+      : 'assigned';
+
+  chains[idx] = {
+    ...chains[idx],
+    plan_id: newPlan.id,
+    max_branches: overrides?.max_branches ?? newPlan.max_branches,
+    max_users: overrides?.max_users ?? newPlan.max_users,
+    max_pos_terminals: overrides?.max_pos_terminals ?? newPlan.max_pos_terminals,
+    ...(overrides?.subscription_start_date ? { subscription_start_date: overrides.subscription_start_date } : {}),
+    ...(overrides?.subscription_expiry_date ? { subscription_expiry_date: overrides.subscription_expiry_date } : {}),
+  };
+
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(chains));
+
+  const currentUser = getCurrentUser();
+  recordSubscriptionHistory({
+    organization_id: chainId,
+    organization_name: chains[idx].name,
+    previous_plan_id: oldPlan.id,
+    previous_plan_name: oldPlan.name,
+    new_plan_id: newPlan.id,
+    new_plan_name: newPlan.name,
+    action,
+    changed_by: currentUser?.full_name || 'Global Admin',
+    notes: `Plan ${action}: ${oldPlan.name} -> ${newPlan.name} (Limits: ${chains[idx].max_branches} branches, ${chains[idx].max_users} users)`,
+  });
+
+  logActivity(
+    'PLAN_CHANGE',
+    'STORE_CHAINS',
+    chainId,
+    `${action.toUpperCase()} plan for "${chains[idx].name}" to ${newPlan.name}`
+  );
   notifyStorageChange();
-  return { success: true, message: `Business profile ${chain.is_active ? 'activated' : 'suspended'}` };
+  return { success: true, message: `Assigned "${newPlan.name}" plan to ${chains[idx].name}.`, chain: chains[idx] };
 }
 
 export function deleteStoreChain(chainId: string): { success: boolean; message: string } {
   if (chainId === 'chain-default' || chainId === 'chain-jks') {
-    return { success: false, message: 'Core system business profiles cannot be removed' };
+    return { success: false, message: 'Core system organizations cannot be removed' };
   }
   const chains = getStoreChains();
   const activeId = getActiveChainId();
@@ -286,7 +706,230 @@ export function deleteStoreChain(chainId: string): { success: boolean; message: 
   const filtered = chains.filter((c) => c.id !== chainId);
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(filtered));
   notifyStorageChange();
-  return { success: true, message: 'Business profile deleted successfully' };
+  return { success: true, message: 'Organization deleted successfully' };
+}
+
+export function registerOrganization(data: {
+  name: string;
+  code?: string;
+  business_type?: string;
+  industry?: string;
+  description?: string;
+  registration_number?: string;
+  tax_id?: string;
+  email?: string;
+  website?: string;
+  country?: string;
+  city?: string;
+  logo_url?: string;
+  admin_name: string;
+  admin_email: string;
+  admin_username?: string;
+  admin_phone?: string;
+  admin_password?: string;
+  phone?: string;
+  address?: string;
+  plan_id?: string;
+  subscription_start_date?: string;
+  subscription_expiry_date?: string;
+  max_branches?: number;
+  max_users?: number;
+  max_pos_terminals?: number;
+  status?: OrganizationStatus;
+  switchContext?: boolean;
+}): { success: boolean; message: string; chain?: StoreChain; adminUser?: User } {
+  const chains = getStoreChains();
+  const cleanName = data.name.trim();
+  if (!cleanName) {
+    return { success: false, message: 'Organization name is required.' };
+  }
+  if (!data.admin_name.trim() || !data.admin_email.trim()) {
+    return { success: false, message: 'Administrator full name and email are required.' };
+  }
+
+  const baseCode = (data.code || cleanName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 6) || 'ORG')
+    .toUpperCase()
+    .trim();
+  const finalCode = chains.some((c) => c.code.toUpperCase() === baseCode)
+    ? `${baseCode}${Date.now().toString().slice(-3)}`
+    : baseCode;
+
+  const plan = getPlanById(data.plan_id || 'plan-free');
+  const startDate = data.subscription_start_date || new Date().toISOString().split('T')[0];
+  const defaultExpiry = new Date();
+  defaultExpiry.setFullYear(defaultExpiry.getFullYear() + 1);
+  const expiryDate = data.subscription_expiry_date || defaultExpiry.toISOString().split('T')[0];
+  const orgStatus: OrganizationStatus = data.status || 'active';
+
+  const newChainId = `org-${Date.now()}`;
+  const adminUsername =
+    (data.admin_username || data.admin_email.split('@')[0] || 'orgadmin')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_.-]/g, '') || 'orgadmin';
+
+  const newChain: StoreChain = {
+    id: newChainId,
+    name: cleanName,
+    code: finalCode,
+    business_type: data.business_type || 'Retail & Departmental Store',
+    industry: data.industry || 'Retail & General POS',
+    description: data.description || '',
+    registration_number: data.registration_number || '',
+    tax_id: data.tax_id || '',
+    website: data.website || '',
+    country: data.country || 'Pakistan',
+    city: data.city || '',
+    logo_url: data.logo_url || '',
+    admin_name: data.admin_name.trim(),
+    admin_email: data.admin_email.trim(),
+    admin_username: adminUsername,
+    admin_phone: data.admin_phone || data.phone || '',
+    phone: data.phone || data.admin_phone || '',
+    address: data.address || '',
+    plan_id: plan.id,
+    subscription_start_date: startDate,
+    subscription_expiry_date: expiryDate,
+    max_branches: Number(data.max_branches || plan.max_branches),
+    max_users: Number(data.max_users || plan.max_users),
+    max_pos_terminals: Number(data.max_pos_terminals || plan.max_pos_terminals),
+    status: orgStatus,
+    created_at: new Date().toISOString(),
+    is_active: orgStatus === 'active',
+  };
+
+  const updatedChains = [...chains, newChain];
+  localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(updatedChains));
+
+  const headOfficeBranchId = `br-${finalCode.toLowerCase()}-01`;
+  const headOfficeBranch: StoreBranch = {
+    id: headOfficeBranchId,
+    organization_id: newChainId,
+    name: `${cleanName} - Head Office`,
+    code: `${finalCode}-01`,
+    branch_type: 'head_office',
+    contact_person: data.admin_name.trim(),
+    manager_user_id: 1001,
+    manager_name: data.admin_name.trim(),
+    address: data.address || `${data.city ? data.city + ', ' : ''}${data.country || 'Pakistan'}`,
+    phone: data.phone || data.admin_phone || '',
+    email: data.email || data.admin_email.trim(),
+    city: data.city || '',
+    country: data.country || 'Pakistan',
+    status: 'active',
+    opening_date: startDate,
+    is_head_office: true,
+    is_active: true,
+  };
+
+  const orgRoles = buildDefaultRolesForOrg(newChainId);
+  const orgAdminRole = orgRoles.find((r) => r.base_role === 'admin');
+
+  const adminUser: User = {
+    id: 1001,
+    organization_id: newChainId,
+    username: adminUsername,
+    password: data.admin_password || 'Admin@123',
+    pos_pin: '1234',
+    full_name: data.admin_name.trim(),
+    email: data.admin_email.trim(),
+    phone: data.admin_phone || data.phone || '',
+    role: 'admin',
+    custom_role_id: orgAdminRole?.id,
+    designation: 'Organization Administrator',
+    employee_code: `${finalCode}-001`,
+    is_active: true,
+    account_status: 'active',
+    is_super_admin: false,
+    created_at: new Date().toISOString(),
+    assigned_branch_id: 'all',
+    assigned_branches: ['all'],
+    permissions: defaultPermissionsByRole('admin'),
+  };
+
+  const initialTenantSettings: SystemSettings = {
+    business_name: cleanName,
+    logo_url: data.logo_url || '',
+    business_address: headOfficeBranch.address,
+    business_phone: data.phone || '',
+    email: data.email || data.admin_email.trim(),
+    city: data.city || '',
+    country: data.country || 'Pakistan',
+    tax_id: data.tax_id || '',
+    registration_number: data.registration_number || '',
+    website: data.website || '',
+    active_branch_id: headOfficeBranchId,
+    branches: [headOfficeBranch],
+    currency_symbol: 'Rs.',
+    default_buy_rate: 0,
+    default_sell_rate: 0,
+    invoice_prefix: `${finalCode}-INV`,
+    purchase_prefix: `${finalCode}-PUR`,
+    invoice_footer: `Thank you for shopping at ${cleanName}!`,
+    default_tax_rate: 0,
+    base_currency: 'PKR',
+    active_display_currency: 'PKR',
+    currencies: defaultCurrencies,
+  };
+
+  localStorage.setItem(`${STORAGE_KEYS.USERS}_${newChainId}`, JSON.stringify([adminUser]));
+  localStorage.setItem(`${STORAGE_KEYS.CURRENT_USER}_${newChainId}`, JSON.stringify(adminUser));
+  localStorage.setItem(`${STORAGE_KEYS.SETTINGS}_${newChainId}`, JSON.stringify(initialTenantSettings));
+  localStorage.setItem(`${STORAGE_KEYS.ROLES}_${newChainId}`, JSON.stringify(orgRoles));
+  localStorage.setItem(`${STORAGE_KEYS.CATEGORIES}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.SUB_CATEGORIES}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.ITEM_GROUPS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.BRANDS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.ITEM_DEFINITIONS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.SUPPLIERS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.CUSTOMERS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.WOOD_STOCKS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.PURCHASES}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.SALES}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.SALE_ITEMS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.PAYMENTS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.EXPENSES}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(`${STORAGE_KEYS.IMPORT_LOGS}_${newChainId}`, JSON.stringify([]));
+  localStorage.setItem(
+    `${STORAGE_KEYS.LOGS}_${newChainId}`,
+    JSON.stringify([
+      {
+        id: 1,
+        organization_id: newChainId,
+        organization_name: cleanName,
+        branch_id: headOfficeBranchId,
+        branch_name: headOfficeBranch.name,
+        user_id: 1,
+        username: 'Mobin',
+        action: 'CREATE',
+        table_name: 'STORE_CHAINS',
+        record_id: newChainId,
+        details: `Organization "${cleanName}" (${finalCode}) registered on ${plan.name} plan`,
+        created_at: new Date().toISOString(),
+      },
+    ])
+  );
+
+  const actor = getCurrentUser();
+  recordSubscriptionHistory({
+    organization_id: newChainId,
+    organization_name: cleanName,
+    new_plan_id: plan.id,
+    new_plan_name: plan.name,
+    action: 'assigned',
+    changed_by: actor?.full_name || 'Global Admin',
+    notes: `Initial registration on ${plan.name} plan (${newChain.max_branches} branches, ${newChain.max_users} users)`,
+  });
+
+  logActivity('CREATE', 'STORE_CHAINS', newChainId, `Registered organization "${cleanName}" (${finalCode}) on ${plan.name} plan`);
+
+  if (data.switchContext) {
+    setActiveStoreChain(newChainId, true);
+  } else {
+    notifyStorageChange();
+  }
+
+  return { success: true, message: `Organization "${cleanName}" registered successfully.`, chain: newChain, adminUser };
 }
 
 export function registerNewStoreChain(data: {
@@ -302,115 +945,27 @@ export function registerNewStoreChain(data: {
   phone?: string;
   address?: string;
 }): StoreChain {
-  const chains = getStoreChains();
-  const newChainId = `chain-${Date.now()}`;
-  const newChain: StoreChain = {
-    id: newChainId,
-    name: data.name,
-    code: data.code.toUpperCase().trim() || 'STORE',
-    business_type: data.business_type || 'General Business / Timber Mart',
-    industry: data.industry || 'Wood & General Retail',
-    description: data.description || '',
-    logo_url: data.logo_url || '',
-    admin_name: data.admin_name,
-    admin_email: data.admin_email,
-    phone: data.phone || '',
-    address: data.address || '',
-    created_at: new Date().toISOString(),
-    is_active: true,
-  };
-
-  const updatedChains = [...chains, newChain];
-  localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(updatedChains));
-
-  // Initialize dedicated local admin user for this new tenant
-  const adminUser: User = {
-    id: 1001,
-    username: data.admin_email.split('@')[0] || 'admin',
-    password: data.admin_password || 'Admin@123',
-    full_name: data.admin_name,
-    email: data.admin_email,
-    phone: data.phone || '',
-    role: 'admin',
-    designation: 'Business Manager',
-    is_active: true,
-    created_at: new Date().toISOString(),
-    assigned_branch_id: 'br-head-office',
-  };
-
-  const initialTenantSettings: SystemSettings = {
-    business_name: data.name,
-    logo_url: data.logo_url || '',
-    business_address: data.address || '',
-    business_phone: data.phone || '',
-    email: data.admin_email,
-    active_branch_id: 'br-head-office',
-    branches: [
-      {
-        id: 'br-head-office',
-        name: `${data.name} - Head Office`,
-        code: `${data.code.toUpperCase().trim()}-01`,
-        address: data.address || '',
-        phone: data.phone || '',
-        email: data.admin_email,
-        is_head_office: true,
-      },
-    ],
-    currency_symbol: 'Rs.',
-    default_buy_rate: 0,
-    default_sell_rate: 0,
-    invoice_prefix: 'INV',
-    purchase_prefix: 'PUR',
-    invoice_footer: 'Thank you for shopping with us!',
-    default_tax_rate: 0,
-    base_currency: 'PKR',
-    active_display_currency: 'PKR',
-    currencies: defaultCurrencies,
-  };
-
-  // Seed isolated localStorage entries for this tenant with local admin only
-  localStorage.setItem(`${STORAGE_KEYS.USERS}_${newChainId}`, JSON.stringify([adminUser]));
-  localStorage.setItem(`${STORAGE_KEYS.CURRENT_USER}_${newChainId}`, JSON.stringify(adminUser));
-  localStorage.setItem(`${STORAGE_KEYS.SETTINGS}_${newChainId}`, JSON.stringify(initialTenantSettings));
-  localStorage.setItem(`${STORAGE_KEYS.CATEGORIES}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.SUB_CATEGORIES}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.ITEM_GROUPS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.BRANDS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.ITEM_DEFINITIONS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.SUPPLIERS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.CUSTOMERS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.WOOD_STOCKS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.PURCHASES}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.SALES}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.SALE_ITEMS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.PAYMENTS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.EXPENSES}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.IMPORT_LOGS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(`${STORAGE_KEYS.LOGS}_${newChainId}`, JSON.stringify([
-    {
-      id: 1,
-      user_id: 1,
-      username: 'Mobin',
-      action: 'CREATE',
-      table_name: 'StoreChain',
-      record_id: newChainId,
-      details: `New SaaS Business Profile / Store Chain Provisioned: ${data.name} (${newChain.code})`,
-      created_at: new Date().toISOString(),
-    },
-  ]));
-
-  // Automatically switch active context to newly registered chain
-  setActiveStoreChain(newChainId);
-
-  return newChain;
+  const res = registerOrganization({
+    ...data,
+    switchContext: true,
+  });
+  if (!res.chain) {
+    throw new Error(res.message || 'Failed to register organization');
+  }
+  return res.chain;
 }
 
-function getTenantStorageKey(baseKey: string): string {
-  // If base key is global (like STORE_CHAINS or ACTIVE_CHAIN_ID), do not prefix
-  if (baseKey === STORAGE_KEYS.STORE_CHAINS || baseKey === STORAGE_KEYS.ACTIVE_CHAIN_ID) {
+function getTenantStorageKey(baseKey: string, overrideChainId?: string): string {
+  // Global platform keys are shared across all organizations
+  if (
+    baseKey === STORAGE_KEYS.STORE_CHAINS ||
+    baseKey === STORAGE_KEYS.ACTIVE_CHAIN_ID ||
+    baseKey === STORAGE_KEYS.SUBSCRIPTION_PLANS ||
+    baseKey === STORAGE_KEYS.SUBSCRIPTION_HISTORY
+  ) {
     return baseKey;
   }
-  const activeChainId = getActiveChainId();
+  const activeChainId = overrideChainId || getActiveChainId();
   if (!activeChainId || activeChainId === 'chain-default') {
     return baseKey;
   }
@@ -853,13 +1408,14 @@ export function loginUser(
   chainId?: string
 ): { success: boolean; message: string; user?: User } {
   const trimmed = identifier.trim().toLowerCase();
-  // If user identifier is jks, automatically ensure chain is set to chain-jks
   if ((trimmed === 'jks' || trimmed === 'jks@jkscashandcarry.com') && (!chainId || chainId === 'chain-default')) {
     chainId = 'chain-jks';
   }
   if (chainId) {
     setActiveStoreChain(chainId, true);
   }
+
+  const activeChain = getActiveStoreChain();
   const users = getUsers();
   let user = users.find(
     (u) =>
@@ -873,10 +1429,11 @@ export function loginUser(
     user = MOBIN_SUPER_ADMIN;
   }
 
-  // If logging in as jks in chain-jks but not in users list for some reason
+  // If logging in as jks in chain-jks fallback
   if (!user && (trimmed === 'jks' || trimmed === 'jks@jkscashandcarry.com') && getActiveChainId() === 'chain-jks') {
     const fallbackJksAdmin: User = {
       id: 1001,
+      organization_id: 'chain-jks',
       username: 'jks',
       password: '1234',
       pos_pin: '1234',
@@ -887,60 +1444,64 @@ export function loginUser(
       designation: 'JKS Store Administrator',
       employee_code: 'JKS-001',
       is_active: true,
+      account_status: 'active',
       is_super_admin: false,
       created_at: new Date().toISOString(),
       assigned_branch_id: 'all',
-      permissions: {
-        pos_billing: true,
-        sales_view: true,
-        sales_discount: true,
-        sales_refund: true,
-        inventory_view: true,
-        inventory_manage: true,
-        purchases_manage: true,
-        customers_manage: true,
-        suppliers_manage: true,
-        expenses_manage: true,
-        reports_view: true,
-        settings_manage: true,
-        users_manage: true,
-        audit_logs_view: true,
-      },
+      assigned_branches: ['all'],
+      permissions: defaultPermissionsByRole('admin'),
     };
     saveUser(fallbackJksAdmin);
     user = fallbackJksAdmin;
   }
 
   if (!user) {
-    return { success: false, message: 'User account not found in selected store chain.' };
+    return { success: false, message: 'User account not found in selected organization.' };
   }
 
-  if (!user.is_active) {
+  if (!user.is_active || user.account_status === 'inactive') {
     return { success: false, message: 'This user account is deactivated.' };
   }
 
+  // Check Organization Status for non-Global-Super-Admin users
+  if (!isUserSuperAdmin(user)) {
+    const accessState = getOrganizationAccessState(activeChain);
+    if (accessState.blocked) {
+      return { success: false, message: accessState.reason };
+    }
+  }
+
   const pwdInput = (password || '').trim();
-  const validPwd =
-    !user.password ||
-    pwdInput === user.password ||
-    pwdInput === user.pos_pin ||
-    pwdInput === '123456' ||
-    pwdInput === '1234' ||
-    pwdInput === 'Admin@123' ||
-    pwdInput === 'admin' ||
-    pwdInput === '1122' ||
-    pwdInput === '5678' ||
-    pwdInput === '3344' ||
-    pwdInput === '9900' ||
-    pwdInput === 'password';
+  const isDefaultDemoUser = ['mobin', 'admin', 'manager', 'cashier1', 'warehouse1', 'jks', 'jks_manager', 'jks_cashier'].includes(
+    (user.username || '').toLowerCase()
+  );
+  const validPwd = isDefaultDemoUser
+    ? !user.password ||
+      pwdInput === user.password ||
+      pwdInput === user.pos_pin ||
+      ['123456', '1234', 'Admin@123', 'admin', '1122', '5678', '3344', '9900', 'password'].includes(pwdInput)
+    : !user.password || pwdInput === user.password || pwdInput === user.pos_pin;
 
   if (!validPwd) {
     return { success: false, message: 'Invalid password or PIN.' };
   }
 
   const updatedUser = { ...user, last_login: new Date().toISOString() };
-  saveUser(updatedUser);
+  if (!isUserSuperAdmin(updatedUser)) {
+    saveUser(updatedUser);
+  }
   setCurrentUser(updatedUser);
+
+  // Align active branch to an authorized branch for restricted users
+  const authorizedBranches = getAuthorizedBranchesForUser(updatedUser);
+  const currentSettings = getSettings();
+  if (
+    authorizedBranches.length > 0 &&
+    !authorizedBranches.some((b) => b.id === currentSettings.active_branch_id)
+  ) {
+    setActiveBranch(authorizedBranches[0].id);
+  }
+
   setIsAuthenticated(true);
   return { success: true, message: 'Login successful', user: updatedUser };
 }
@@ -959,10 +1520,36 @@ export function logActivity(
   recordId?: string | number,
   details: string = ''
 ): void {
-  const currentUser = getCurrentUser();
-  const logs = getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, initialActivityLogs);
+  let currentUser: User | null = null;
+  try {
+    const rawUser = localStorage.getItem(getTenantStorageKey(STORAGE_KEYS.CURRENT_USER));
+    currentUser = rawUser ? JSON.parse(rawUser) : initialUsers[0];
+  } catch {
+    currentUser = initialUsers[0];
+  }
+
+  const activeChain = getActiveStoreChain();
+  let branchId = '';
+  let branchName = '';
+  try {
+    const rawSettings = localStorage.getItem(getTenantStorageKey(STORAGE_KEYS.SETTINGS));
+    if (rawSettings) {
+      const s = JSON.parse(rawSettings);
+      branchId = s.active_branch_id || '';
+      branchName = s.branch_name || '';
+    }
+  } catch {
+    // ignore
+  }
+
+  const activeChainId = getActiveChainId();
+  const logs = getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, activeChainId === 'chain-default' ? initialActivityLogs : []);
   const newLog: ActivityLog = {
     id: logs.length ? Math.max(...logs.map((l) => l.id)) + 1 : 1,
+    organization_id: activeChain.id,
+    organization_name: activeChain.name,
+    branch_id: branchId || undefined,
+    branch_name: branchName || undefined,
     user_id: currentUser?.id || 1,
     username: currentUser?.full_name || 'System',
     action,
@@ -971,11 +1558,426 @@ export function logActivity(
     details,
     created_at: new Date().toISOString(),
   };
-  setStoredItem(STORAGE_KEYS.LOGS, [newLog, ...logs]);
+  setStoredItem(STORAGE_KEYS.LOGS, [newLog, ...logs].slice(0, 500));
 }
 
 export function getActivityLogs(): ActivityLog[] {
-  return getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, initialActivityLogs);
+  const activeChainId = getActiveChainId();
+  return getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, activeChainId === 'chain-default' ? initialActivityLogs : []);
+}
+
+export function defaultPermissionsByRole(role: UserRole): UserPermissions {
+  switch (role) {
+    case 'admin':
+      return {
+        pos_billing: true,
+        sales_view: true,
+        sales_discount: true,
+        sales_refund: true,
+        inventory_view: true,
+        inventory_manage: true,
+        purchases_manage: true,
+        customers_manage: true,
+        suppliers_manage: true,
+        expenses_manage: true,
+        reports_view: true,
+        settings_manage: true,
+        users_manage: true,
+        audit_logs_view: true,
+      };
+    case 'manager':
+      return {
+        pos_billing: true,
+        sales_view: true,
+        sales_discount: true,
+        sales_refund: true,
+        inventory_view: true,
+        inventory_manage: true,
+        purchases_manage: true,
+        customers_manage: true,
+        suppliers_manage: true,
+        expenses_manage: true,
+        reports_view: true,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: true,
+      };
+    case 'cashier':
+      return {
+        pos_billing: true,
+        sales_view: true,
+        sales_discount: true,
+        sales_refund: false,
+        inventory_view: true,
+        inventory_manage: false,
+        purchases_manage: false,
+        customers_manage: true,
+        suppliers_manage: false,
+        expenses_manage: false,
+        reports_view: false,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: false,
+      };
+    case 'salesperson':
+      return {
+        pos_billing: true,
+        sales_view: true,
+        sales_discount: true,
+        sales_refund: false,
+        inventory_view: true,
+        inventory_manage: false,
+        purchases_manage: false,
+        customers_manage: true,
+        suppliers_manage: false,
+        expenses_manage: false,
+        reports_view: true,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: false,
+      };
+    case 'inventory_manager':
+      return {
+        pos_billing: false,
+        sales_view: true,
+        sales_discount: false,
+        sales_refund: false,
+        inventory_view: true,
+        inventory_manage: true,
+        purchases_manage: true,
+        customers_manage: false,
+        suppliers_manage: true,
+        expenses_manage: false,
+        reports_view: true,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: true,
+      };
+    case 'purchase_manager':
+      return {
+        pos_billing: false,
+        sales_view: false,
+        sales_discount: false,
+        sales_refund: false,
+        inventory_view: true,
+        inventory_manage: true,
+        purchases_manage: true,
+        customers_manage: false,
+        suppliers_manage: true,
+        expenses_manage: false,
+        reports_view: true,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: true,
+      };
+    case 'accountant':
+      return {
+        pos_billing: false,
+        sales_view: true,
+        sales_discount: false,
+        sales_refund: false,
+        inventory_view: true,
+        inventory_manage: false,
+        purchases_manage: true,
+        customers_manage: true,
+        suppliers_manage: true,
+        expenses_manage: true,
+        reports_view: true,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: true,
+      };
+    case 'warehouse_staff':
+    default:
+      return {
+        pos_billing: false,
+        sales_view: true,
+        sales_discount: false,
+        sales_refund: false,
+        inventory_view: true,
+        inventory_manage: true,
+        purchases_manage: true,
+        customers_manage: false,
+        suppliers_manage: true,
+        expenses_manage: false,
+        reports_view: false,
+        settings_manage: false,
+        users_manage: false,
+        audit_logs_view: false,
+      };
+  }
+}
+
+export function createMatrixForRole(baseRole: UserRole): GranularPermissionMatrix {
+  const perms = defaultPermissionsByRole(baseRole);
+  const full = (on: boolean, canApprove = false): ModulePermissionActions => ({
+    access: on,
+    view: on,
+    add: on,
+    edit: on,
+    delete: on && baseRole === 'admin',
+    approve: on && (canApprove || baseRole === 'admin' || baseRole === 'manager'),
+    print: on,
+    export: on && (baseRole === 'admin' || baseRole === 'manager' || baseRole === 'accountant'),
+  });
+
+  return {
+    dashboard: { access: true, view: true, add: false, edit: false, delete: false, approve: false, print: true, export: baseRole === 'admin' || baseRole === 'manager' },
+    pos: { access: perms.pos_billing, view: perms.pos_billing, add: perms.pos_billing, edit: perms.sales_discount, delete: perms.sales_refund, approve: perms.sales_refund, print: perms.pos_billing, export: perms.pos_billing },
+    inventory: { access: perms.inventory_view, view: perms.inventory_view, add: perms.inventory_manage, edit: perms.inventory_manage, delete: perms.inventory_manage && baseRole === 'admin', approve: perms.inventory_manage, print: perms.inventory_view, export: perms.inventory_view },
+    purchases: full(perms.purchases_manage, true),
+    sales: { access: perms.sales_view, view: perms.sales_view, add: perms.pos_billing, edit: perms.sales_discount, delete: perms.sales_refund, approve: perms.sales_refund, print: perms.sales_view, export: perms.reports_view },
+    customers: full(perms.customers_manage),
+    suppliers: full(perms.suppliers_manage),
+    payments: full(perms.customers_manage || perms.suppliers_manage || perms.expenses_manage),
+    expenses: full(perms.expenses_manage, true),
+    reports: { access: perms.reports_view, view: perms.reports_view, add: false, edit: false, delete: false, approve: false, print: perms.reports_view, export: perms.reports_view },
+    organization: { access: baseRole === 'admin' || baseRole === 'manager', view: baseRole === 'admin' || baseRole === 'manager', add: baseRole === 'admin', edit: baseRole === 'admin', delete: baseRole === 'admin', approve: baseRole === 'admin', print: baseRole === 'admin', export: baseRole === 'admin' },
+    users: full(perms.users_manage, true),
+    settings: full(perms.settings_manage, true),
+    audit_logs: { access: perms.audit_logs_view, view: perms.audit_logs_view, add: false, edit: false, delete: false, approve: false, print: perms.audit_logs_view, export: perms.audit_logs_view },
+  };
+}
+
+export function buildDefaultRolesForOrg(orgId: string): RoleDefinition[] {
+  const now = new Date().toISOString();
+  const templates: Array<{ idSuffix: string; name: string; base_role: UserRole; description: string; branch_access: 'all' | 'assigned' }> = [
+    { idSuffix: 'org-admin', name: 'Organization Admin', base_role: 'admin', description: 'Full organization-wide administration across branches, staff, roles, and POS.', branch_access: 'all' },
+    { idSuffix: 'branch-manager', name: 'Branch Manager', base_role: 'manager', description: 'Manage assigned branch operations, staff, stock, and branch reports.', branch_access: 'assigned' },
+    { idSuffix: 'cashier', name: 'Cashier', base_role: 'cashier', description: 'Counter checkout, customer lookup, receipts, and daily shift billing.', branch_access: 'assigned' },
+    { idSuffix: 'salesperson', name: 'Salesperson', base_role: 'salesperson', description: 'Retail billing, customer credit accounts, and sales summaries.', branch_access: 'assigned' },
+    { idSuffix: 'inventory-manager', name: 'Inventory Manager', base_role: 'inventory_manager', description: 'Manage items, categories, brands, stock counts, and reorders.', branch_access: 'assigned' },
+    { idSuffix: 'purchase-manager', name: 'Purchase Manager', base_role: 'purchase_manager', description: 'Manage purchase orders, stock-in, and supplier bills.', branch_access: 'assigned' },
+    { idSuffix: 'accountant', name: 'Accountant', base_role: 'accountant', description: 'Manage financial ledgers, supplier/customer payments, expenses, and reports.', branch_access: 'all' },
+    { idSuffix: 'warehouse-staff', name: 'Warehouse Staff', base_role: 'warehouse_staff', description: 'Receive inventory shipments and manage warehouse stock.', branch_access: 'assigned' },
+  ];
+
+  return templates.map((t) => ({
+    id: `role-${orgId}-${t.idSuffix}`,
+    organization_id: orgId,
+    name: t.name,
+    base_role: t.base_role,
+    description: t.description,
+    branch_access: t.branch_access,
+    permissions: defaultPermissionsByRole(t.base_role),
+    matrix: createMatrixForRole(t.base_role),
+    is_system: true,
+    created_at: now,
+  }));
+}
+
+export function getRoles(chainId?: string): RoleDefinition[] {
+  const targetChainId = chainId || getActiveChainId();
+  const key = getTenantStorageKey(STORAGE_KEYS.ROLES, targetChainId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      const seeded = buildDefaultRolesForOrg(targetChainId);
+      localStorage.setItem(key, JSON.stringify(seeded));
+      return seeded;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      const seeded = buildDefaultRolesForOrg(targetChainId);
+      localStorage.setItem(key, JSON.stringify(seeded));
+      return seeded;
+    }
+    return parsed;
+  } catch {
+    return buildDefaultRolesForOrg(targetChainId);
+  }
+}
+
+export function saveRole(
+  roleInput: Partial<RoleDefinition> & { name: string; base_role: UserRole }
+): { success: boolean; message: string; role?: RoleDefinition } {
+  const orgId = getActiveChainId();
+  const roles = getRoles(orgId);
+  const key = getTenantStorageKey(STORAGE_KEYS.ROLES, orgId);
+  const cleanName = roleInput.name.trim();
+  if (!cleanName) return { success: false, message: 'Role name is required.' };
+
+  if (roleInput.id) {
+    const idx = roles.findIndex((r) => r.id === roleInput.id);
+    if (idx === -1) return { success: false, message: 'Role not found.' };
+    roles[idx] = {
+      ...roles[idx],
+      ...roleInput,
+      name: cleanName,
+      updated_at: new Date().toISOString(),
+    };
+    localStorage.setItem(key, JSON.stringify(roles));
+
+    // Propagate updated role permissions to linked users
+    if (roleInput.permissions) {
+      const users = getUsers();
+      let usersChanged = false;
+      const updatedUsers = users.map((u) => {
+        if (u.custom_role_id === roleInput.id) {
+          usersChanged = true;
+          return { ...u, permissions: { ...roleInput.permissions! } };
+        }
+        return u;
+      });
+      if (usersChanged) {
+        setStoredItem(STORAGE_KEYS.USERS, updatedUsers);
+      }
+    }
+
+    logActivity('ROLE_CHANGE', 'ROLES', roles[idx].id, `Updated role permissions for "${roles[idx].name}"`);
+    notifyStorageChange();
+    return { success: true, message: `Role "${roles[idx].name}" updated.`, role: roles[idx] };
+  }
+
+  if (roles.some((r) => r.name.toLowerCase() === cleanName.toLowerCase())) {
+    return { success: false, message: 'A role with this name already exists in this organization.' };
+  }
+
+  const newRole: RoleDefinition = {
+    id: `role-${orgId}-${Date.now()}`,
+    organization_id: orgId,
+    name: cleanName,
+    base_role: roleInput.base_role,
+    description: roleInput.description || '',
+    branch_access: roleInput.branch_access || 'assigned',
+    permissions: roleInput.permissions || defaultPermissionsByRole(roleInput.base_role),
+    matrix: roleInput.matrix || createMatrixForRole(roleInput.base_role),
+    is_system: false,
+    created_at: new Date().toISOString(),
+  };
+
+  const nextRoles = [...roles, newRole];
+  localStorage.setItem(key, JSON.stringify(nextRoles));
+  logActivity('CREATE', 'ROLES', newRole.id, `Created custom role "${newRole.name}"`);
+  notifyStorageChange();
+  return { success: true, message: `Role "${newRole.name}" created.`, role: newRole };
+}
+
+export function deleteRole(roleId: string): { success: boolean; message: string } {
+  const orgId = getActiveChainId();
+  const roles = getRoles(orgId);
+  const target = roles.find((r) => r.id === roleId);
+  if (!target) return { success: false, message: 'Role not found.' };
+  if (target.is_system) return { success: false, message: 'Core system role templates cannot be deleted.' };
+
+  const key = getTenantStorageKey(STORAGE_KEYS.ROLES, orgId);
+  localStorage.setItem(key, JSON.stringify(roles.filter((r) => r.id !== roleId)));
+  logActivity('DELETE', 'ROLES', roleId, `Deleted custom role "${target.name}"`);
+  notifyStorageChange();
+  return { success: true, message: `Role "${target.name}" deleted.` };
+}
+
+// Cross-tenant helpers for Global Admin SaaS Dashboard
+export function getOrganizationUsers(chainId: string): User[] {
+  const key = getTenantStorageKey(STORAGE_KEYS.USERS, chainId);
+  try {
+    const raw = localStorage.getItem(key);
+    let list: User[] = raw ? JSON.parse(raw) : chainId === 'chain-default' ? initialUsers : [];
+    if (!Array.isArray(list)) list = [];
+    // Exclude Global Super Admin from organization employee seat counts
+    return list.filter((u) => u && !isUserSuperAdmin(u));
+  } catch {
+    return [];
+  }
+}
+
+export function getOrganizationBranches(chainId: string): StoreBranch[] {
+  const key = getTenantStorageKey(STORAGE_KEYS.SETTINGS, chainId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const s: SystemSettings = JSON.parse(raw);
+      if (Array.isArray(s.branches) && s.branches.length > 0) {
+        return s.branches;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  if (chainId === 'chain-default') {
+    return (initialSettings.branches || []).map((b) => ({
+      ...b,
+      organization_id: 'chain-default',
+      status: b.status || 'active',
+      is_active: b.is_active !== false,
+    }));
+  }
+  if (chainId === 'chain-jks') {
+    return [
+      { id: 'br-jks-1', organization_id: 'chain-jks', name: 'JKS Cash & Carry - Main Branch', code: 'JKS-01', branch_type: 'head_office', address: 'Main Boulevard, Gulberg, Lahore', city: 'Lahore', country: 'Pakistan', status: 'active', is_head_office: true, is_active: true },
+      { id: 'br-jks-2', organization_id: 'chain-jks', name: 'JKS Cash & Carry - Ravi Road Branch', code: 'JKS-02', branch_type: 'retail_outlet', address: 'Main Market, Ravi Road, Lahore', city: 'Lahore', country: 'Pakistan', status: 'active', is_active: true },
+      { id: 'br-jks-3', organization_id: 'chain-jks', name: 'JKS Cash & Carry - Express Mart', code: 'JKS-03', branch_type: 'express_mart', address: 'DHA Phase 5, Lahore', city: 'Lahore', country: 'Pakistan', status: 'active', is_active: true },
+    ];
+  }
+  const chain = getStoreChains().find((c) => c.id === chainId);
+  return [
+    {
+      id: 'br-head-office',
+      organization_id: chainId,
+      name: `${chain?.name || 'Store'} - Head Office`,
+      code: `${chain?.code || 'ORG'}-01`,
+      branch_type: 'head_office',
+      address: chain?.address || '',
+      city: chain?.city || '',
+      country: chain?.country || 'Pakistan',
+      status: 'active',
+      is_head_office: true,
+      is_active: true,
+    },
+  ];
+}
+
+export function getOrganizationSales(chainId: string): Sale[] {
+  const key = getTenantStorageKey(STORAGE_KEYS.SALES, chainId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    }
+    return chainId === 'chain-default' ? initialSales : [];
+  } catch {
+    return [];
+  }
+}
+
+export function getOrganizationUsageStats(chainId: string): {
+  branches: StoreBranch[];
+  branchCount: number;
+  activeBranchCount: number;
+  users: User[];
+  userCount: number;
+  activeUserCount: number;
+  salesCount: number;
+  totalRevenue: number;
+  maxBranches: number;
+  maxUsers: number;
+  maxPosTerminals: number;
+  plan: SubscriptionPlan;
+} {
+  const chain = getStoreChains().find((c) => c.id === chainId);
+  const limits = getEffectiveOrgLimits(chain);
+  const branches = getOrganizationBranches(chainId);
+  const users = getOrganizationUsers(chainId);
+  const sales = getOrganizationSales(chainId);
+  const totalRevenue = sales
+    .filter((s) => s.status !== 'cancelled')
+    .reduce((sum, s) => sum + Number(s.grand_total || 0), 0);
+
+  return {
+    branches,
+    branchCount: branches.length,
+    activeBranchCount: branches.filter((b) => b.status !== 'inactive' && b.is_active !== false).length,
+    users,
+    userCount: users.length,
+    activeUserCount: users.filter((u) => u.is_active).length,
+    salesCount: sales.length,
+    totalRevenue,
+    maxBranches: limits.maxBranches,
+    maxUsers: limits.maxUsers,
+    maxPosTerminals: limits.maxPosTerminals,
+    plan: limits.plan,
+  };
 }
 
 // Users API
@@ -1011,52 +2013,79 @@ export function getUsers(): User[] {
 export function saveUser(userData: Partial<User> & { full_name: string; username?: string; email?: string; role: UserRole }): { success: boolean; message: string; user?: User } {
   const current = getCurrentUser();
   const isSuper = isUserSuperAdmin(current);
-  // Prevent non-super-admins from ever setting is_super_admin: true
   if (!isSuper) {
     userData.is_super_admin = false;
   }
+  const activeChain = getActiveStoreChain();
+  const limits = getEffectiveOrgLimits(activeChain);
   const users = getUsers();
   const safeName = userData.full_name || 'User';
-  const emailVal = userData.email || `${(userData.username || safeName).toLowerCase().replace(/\s+/g, '')}@askari.com`;
+  const domainHint = activeChain.code ? `${activeChain.code.toLowerCase()}.rozana.pos` : 'rozana.pos';
+  const emailVal = userData.email || `${(userData.username || safeName).toLowerCase().replace(/\s+/g, '')}@${domainHint}`;
 
   if (userData.id) {
     const idx = users.findIndex((u) => u.id === userData.id);
     if (idx === -1) return { success: false, message: 'User not found' };
-    users[idx] = { ...users[idx], ...userData, updated_at: new Date().toISOString() };
+    const normalizedBranches =
+      userData.assigned_branches && userData.assigned_branches.length > 0
+        ? userData.assigned_branches
+        : userData.assigned_branch_id
+        ? [userData.assigned_branch_id]
+        : users[idx].assigned_branches;
+
+    users[idx] = {
+      ...users[idx],
+      ...userData,
+      organization_id: users[idx].organization_id || activeChain.id,
+      assigned_branches: normalizedBranches,
+      assigned_branch_id:
+        userData.assigned_branch_id ||
+        (normalizedBranches?.includes('all') ? 'all' : normalizedBranches?.[0]) ||
+        users[idx].assigned_branch_id,
+      account_status:
+        userData.is_active === false ? 'inactive' : (userData.account_status || users[idx].account_status || 'active'),
+      updated_at: new Date().toISOString(),
+    };
     setStoredItem(STORAGE_KEYS.USERS, users);
     logActivity('UPDATE', 'Users', userData.id, `Updated user ${userData.full_name}`);
     return { success: true, message: 'User updated successfully', user: users[idx] };
   } else {
+    // Enforce plan max_users limit for new non-super-admin users
+    if (!userData.is_super_admin) {
+      const tenantUserCount = users.filter((u) => !isUserSuperAdmin(u)).length;
+      if (tenantUserCount >= limits.maxUsers) {
+        return {
+          success: false,
+          message: `User seat limit reached (${tenantUserCount}/${limits.maxUsers}) on "${limits.plan.name}" plan. Upgrade plan to add more users.`,
+        };
+      }
+    }
+
     const maxId = users.length ? Math.max(...users.map((u) => u.id || 0)) : 0;
     const nextCodeNum = maxId + 1;
+    const assignedBranchPrimary = userData.assigned_branch_id || userData.assigned_branches?.[0] || 'br-1';
+    const assignedBranchesList =
+      userData.assigned_branches && userData.assigned_branches.length > 0
+        ? userData.assigned_branches
+        : [assignedBranchPrimary];
+
     const newUser: User = {
       id: nextCodeNum,
+      organization_id: userData.organization_id || activeChain.id,
       full_name: safeName,
       username: userData.username || safeName.toLowerCase().replace(/\s+/g, ''),
       email: emailVal,
       phone: userData.phone || '',
       role: userData.role || 'cashier',
+      custom_role_id: userData.custom_role_id,
       designation: userData.designation || `${(userData.role || 'cashier').replace('_', ' ').toUpperCase()} Staff`,
       employee_code: userData.employee_code || `EMP-${nextCodeNum.toString().padStart(3, '0')}`,
-      assigned_branch_id: userData.assigned_branch_id || 'br-1',
+      assigned_branch_id: assignedBranchPrimary,
+      assigned_branches: assignedBranchesList,
       pos_pin: userData.pos_pin || '1234',
-      permissions: userData.permissions || {
-        pos_billing: userData.role === 'cashier' || userData.role === 'admin' || userData.role === 'manager',
-        sales_view: true,
-        sales_discount: userData.role === 'admin' || userData.role === 'manager',
-        sales_refund: userData.role === 'admin' || userData.role === 'manager',
-        inventory_view: true,
-        inventory_manage: userData.role === 'admin' || userData.role === 'manager' || userData.role === 'inventory_manager' || userData.role === 'warehouse_staff',
-        purchases_manage: userData.role === 'admin' || userData.role === 'manager' || userData.role === 'accountant',
-        customers_manage: userData.role !== 'warehouse_staff',
-        suppliers_manage: userData.role === 'admin' || userData.role === 'manager' || userData.role === 'accountant',
-        expenses_manage: userData.role === 'admin' || userData.role === 'manager' || userData.role === 'accountant',
-        reports_view: userData.role === 'admin' || userData.role === 'manager' || userData.role === 'accountant',
-        settings_manage: userData.role === 'admin',
-        users_manage: userData.role === 'admin',
-        audit_logs_view: userData.role === 'admin' || userData.role === 'manager' || userData.role === 'accountant',
-      },
+      permissions: userData.permissions || defaultPermissionsByRole(userData.role || 'cashier'),
       is_active: userData.is_active ?? true,
+      account_status: userData.is_active === false ? 'inactive' : (userData.account_status || 'active'),
       created_at: new Date().toISOString(),
       ...userData,
     };
@@ -1841,9 +2870,13 @@ export function savePurchase(data: {
   purchase_date: string;
   notes?: string;
 }): { success: boolean; message: string; purchase?: Purchase } {
+  const currentUser = getCurrentUser();
+  if (!isUserSuperAdmin(currentUser)) {
+    const access = getOrganizationAccessState(getActiveStoreChain());
+    if (access.blocked) return { success: false, message: access.reason };
+  }
   const purchases = getPurchases();
   const woodStocks = getWoodStocks().filter((w) => w.sub_category_id === data.sub_category_id);
-  const currentUser = getCurrentUser();
 
   const totalPieces = woodStocks.reduce((sum, w) => sum + w.qty, 0);
   const totalCft = Math.round(woodStocks.reduce((sum, w) => sum + w.cft * w.qty, 0) * 10000) / 10000;
@@ -1957,6 +2990,11 @@ export function completeSale(data: {
   points_discount_amount?: number;
   notes?: string;
 }): { success: boolean; message: string; sale?: Sale } {
+  const currentUser = getCurrentUser();
+  if (!isUserSuperAdmin(currentUser)) {
+    const access = getOrganizationAccessState(getActiveStoreChain());
+    if (access.blocked) return { success: false, message: access.reason };
+  }
   if (!data.items || data.items.length === 0) {
     return { success: false, message: 'Cart is empty' };
   }
@@ -1964,7 +3002,6 @@ export function completeSale(data: {
   const stocks = getWoodStocks();
   const sales = getSales();
   const saleItems = getSaleItems();
-  const currentUser = getCurrentUser();
 
   let totalItemsCount = 0;
   let totalCftSum = 0;
@@ -2238,8 +3275,12 @@ export function recordPayment(
   },
   updateBalances: boolean = true
 ): { success: boolean; message: string; payment?: Payment } {
-  const payments = getPayments();
   const currentUser = getCurrentUser();
+  if (!isUserSuperAdmin(currentUser)) {
+    const access = getOrganizationAccessState(getActiveStoreChain());
+    if (access.blocked) return { success: false, message: access.reason };
+  }
+  const payments = getPayments();
 
   const newPayment: Payment = {
     id: payments.length ? Math.max(...payments.map((p) => p.id)) + 1 : 1,
@@ -2465,11 +3506,177 @@ export function saveSettings(newSettings: Partial<SystemSettings>): { success: b
   return { success: true, message: 'Settings saved successfully' };
 }
 
+export function getAuthorizedBranchesForUser(user?: User | null): StoreBranch[] {
+  const targetUser = user || getCurrentUser();
+  const settings = getSettings();
+  const allBranches = settings.branches || [];
+  if (!targetUser || isUserSuperAdmin(targetUser) || targetUser.role === 'admin') {
+    return allBranches;
+  }
+  if (
+    targetUser.assigned_branch_id === 'all' ||
+    (Array.isArray(targetUser.assigned_branches) && targetUser.assigned_branches.includes('all'))
+  ) {
+    return allBranches;
+  }
+  const allowedIds = new Set<string>([
+    ...(Array.isArray(targetUser.assigned_branches) ? targetUser.assigned_branches : []),
+    ...(targetUser.assigned_branch_id ? [targetUser.assigned_branch_id] : []),
+  ]);
+  const filtered = allBranches.filter((b) => allowedIds.has(b.id));
+  return filtered.length > 0 ? filtered : allBranches.slice(0, 1);
+}
+
+export function getBranchesForOrg(): StoreBranch[] {
+  const settings = getSettings();
+  const activeChain = getActiveStoreChain();
+  return (settings.branches || []).map((b) => ({
+    ...b,
+    organization_id: b.organization_id || activeChain.id,
+    status: b.status || (b.is_active === false ? 'inactive' : 'active'),
+    is_active: b.is_active !== false && b.status !== 'inactive',
+  }));
+}
+
+export function saveBranchForOrg(
+  branchData: Partial<StoreBranch> & { name: string }
+): { success: boolean; message: string; branch?: StoreBranch } {
+  const currentSettings = getSettings();
+  const activeChain = getActiveStoreChain();
+  const limits = getEffectiveOrgLimits(activeChain);
+  let branches = [...(currentSettings.branches || [])];
+
+  const cleanName = branchData.name.trim();
+  const cleanCode = (branchData.code || `${activeChain.code}-${String(branches.length + 1).padStart(2, '0')}`)
+    .trim()
+    .toUpperCase();
+
+  if (!cleanName) {
+    return { success: false, message: 'Branch name is required.' };
+  }
+
+  // Unique branch code check within organization
+  const duplicateCode = branches.some(
+    (b) => b.id !== branchData.id && (b.code || '').trim().toUpperCase() === cleanCode
+  );
+  if (duplicateCode) {
+    return { success: false, message: `Branch code "${cleanCode}" already exists in ${activeChain.name}.` };
+  }
+
+  if (branchData.is_head_office) {
+    branches = branches.map((b) => ({ ...b, is_head_office: false }));
+  }
+
+  let savedBranch: StoreBranch;
+  if (branchData.id && branches.some((b) => b.id === branchData.id)) {
+    branches = branches.map((b) => {
+      if (b.id !== branchData.id) return b;
+      const nextStatus = branchData.status || b.status || 'active';
+      savedBranch = {
+        ...b,
+        ...branchData,
+        organization_id: activeChain.id,
+        name: cleanName,
+        code: cleanCode,
+        status: nextStatus,
+        is_active: nextStatus === 'active',
+      };
+      return savedBranch;
+    });
+    savedBranch = branches.find((b) => b.id === branchData.id)!;
+    logActivity('UPDATE', 'BRANCHES', savedBranch.id, `Updated branch "${savedBranch.name}" (${savedBranch.code})`);
+  } else {
+    if (branches.length >= limits.maxBranches) {
+      return {
+        success: false,
+        message: `Branch limit reached (${branches.length}/${limits.maxBranches}) for "${limits.plan.name}" plan. Please upgrade plan to add more branches.`,
+      };
+    }
+    const nextStatus = branchData.status || 'active';
+    savedBranch = {
+      id: branchData.id || `br-${Date.now()}`,
+      organization_id: activeChain.id,
+      name: cleanName,
+      code: cleanCode,
+      branch_type: branchData.branch_type || (branches.length === 0 ? 'head_office' : 'retail_outlet'),
+      contact_person: branchData.contact_person || '',
+      manager_user_id: branchData.manager_user_id || null,
+      manager_name: branchData.manager_name || '',
+      address: branchData.address || '',
+      address_line_2: branchData.address_line_2 || '',
+      phone: branchData.phone || '',
+      cell_phone: branchData.cell_phone || '',
+      email: branchData.email || '',
+      region: branchData.region || '',
+      city: branchData.city || '',
+      postal_code: branchData.postal_code || '',
+      country: branchData.country || activeChain.country || 'Pakistan',
+      status: nextStatus,
+      opening_date: branchData.opening_date || new Date().toISOString().split('T')[0],
+      is_head_office: branchData.is_head_office ?? branches.length === 0,
+      is_active: nextStatus === 'active',
+    };
+    branches.push(savedBranch);
+    logActivity('CREATE', 'BRANCHES', savedBranch.id, `Created branch "${savedBranch.name}" (${savedBranch.code})`);
+  }
+
+  saveSettings({ ...currentSettings, branches });
+  return { success: true, message: `Branch "${savedBranch.name}" saved successfully.`, branch: savedBranch };
+}
+
+export function toggleBranchStatus(branchId: string): { success: boolean; message: string } {
+  const currentSettings = getSettings();
+  const branches = [...(currentSettings.branches || [])];
+  const idx = branches.findIndex((b) => b.id === branchId);
+  if (idx === -1) return { success: false, message: 'Branch not found.' };
+
+  const currentStatus = branches[idx].status || (branches[idx].is_active === false ? 'inactive' : 'active');
+  if (currentStatus === 'active') {
+    const activeCount = branches.filter((b) => (b.status || 'active') === 'active').length;
+    if (activeCount <= 1) {
+      return { success: false, message: 'Organization must maintain at least one active branch.' };
+    }
+  }
+
+  const nextStatus: 'active' | 'inactive' = currentStatus === 'active' ? 'inactive' : 'active';
+  branches[idx] = { ...branches[idx], status: nextStatus, is_active: nextStatus === 'active' };
+  saveSettings({ ...currentSettings, branches });
+  logActivity('TOGGLE_STATUS', 'BRANCHES', branchId, `Branch "${branches[idx].name}" marked ${nextStatus.toUpperCase()}`);
+  return { success: true, message: `Branch "${branches[idx].name}" is now ${nextStatus}.` };
+}
+
+export function deleteBranchForOrg(branchId: string): { success: boolean; message: string } {
+  const currentSettings = getSettings();
+  const branches = [...(currentSettings.branches || [])];
+  if (branches.length <= 1) {
+    return { success: false, message: 'Organization must maintain at least one branch.' };
+  }
+  const target = branches.find((b) => b.id === branchId);
+  if (!target) return { success: false, message: 'Branch not found.' };
+  const remaining = branches.filter((b) => b.id !== branchId);
+  const nextActiveId = currentSettings.active_branch_id === branchId ? remaining[0].id : currentSettings.active_branch_id;
+  saveSettings({ ...currentSettings, branches: remaining, active_branch_id: nextActiveId });
+  logActivity('DELETE', 'BRANCHES', branchId, `Removed branch "${target.name}"`);
+  return { success: true, message: `Branch "${target.name}" removed.` };
+}
+
 export function setActiveBranch(branchId: string): { success: boolean; message: string } {
   const current = getSettings();
+  const currentUser = getCurrentUser();
   const branches = current.branches || [];
   const selected = branches.find((b) => b.id === branchId);
   if (!selected) return { success: false, message: 'Branch not found' };
+
+  if (!isUserSuperAdmin(currentUser) && currentUser?.role !== 'admin') {
+    const authorized = getAuthorizedBranchesForUser(currentUser);
+    if (!authorized.some((b) => b.id === branchId)) {
+      return { success: false, message: 'Access denied: You are not assigned to this branch.' };
+    }
+  }
+
+  if (selected.status === 'inactive' || selected.is_active === false) {
+    return { success: false, message: `Branch "${selected.name}" is inactive.` };
+  }
 
   const updated: SystemSettings = {
     ...current,
@@ -2571,3 +3778,265 @@ export function globalSearch(query: string): Array<{ type: string; id: number; t
 
   return results.slice(0, 10);
 }
+
+export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>): {
+  syncedTables: number;
+  totalRows: number;
+} {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return { syncedTables: 0, totalRows: 0 };
+  }
+
+  let syncedTables = 0;
+  let totalRows = 0;
+
+  const num = (val: unknown, fallback = 0): number => {
+    if (val === null || val === undefined || val === '') return fallback;
+    const parsed = Number(val);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  if (Array.isArray(snapshot.ITEM_GROUPS) && snapshot.ITEM_GROUPS.length > 0) {
+    const mapped = snapshot.ITEM_GROUPS.map((r: any) => ({
+      id: num(r.id),
+      group_id: r.group_id || `GRP-${r.id}`,
+      group_description: r.group_description || '',
+      is_active: r.is_active !== false,
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.ITEM_GROUPS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.CATEGORIES) && snapshot.CATEGORIES.length > 0) {
+    const mapped = snapshot.CATEGORIES.map((r: any) => ({
+      id: num(r.id),
+      item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
+      name: r.name || '',
+      description: r.description || '',
+      is_active: r.is_active !== false,
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.CATEGORIES, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.BRANDS) && snapshot.BRANDS.length > 0) {
+    const mapped = snapshot.BRANDS.map((r: any) => ({
+      id: num(r.id),
+      code: r.code || `BRD-${r.id}`,
+      name: r.name || '',
+      description: r.description || '',
+      is_active: r.is_active !== false,
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.BRANDS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.ITEM_DEFINITIONS) && snapshot.ITEM_DEFINITIONS.length > 0) {
+    const mapped = snapshot.ITEM_DEFINITIONS.map((r: any) => ({
+      id: num(r.id),
+      item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
+      category_id: r.category_id ? num(r.category_id) : undefined,
+      brand_id: r.brand_id ? num(r.brand_id) : undefined,
+      item_code: r.item_code || r.barcode || '',
+      barcode: r.barcode || r.item_code || '',
+      item_name: r.item_name || '',
+      national_language_item_name: r.national_language_item_name || undefined,
+      unit_of_measure: r.unit_of_measure || 'PCS',
+      publisher_vendor: r.publisher_vendor || undefined,
+      image_url: r.image_url || undefined,
+      reorder_level: num(r.reorder_level, 10),
+      reorder_qty: num(r.reorder_qty, 50),
+      printed_price: num(r.printed_price),
+      purchase_discount_percent: num(r.purchase_discount_percent),
+      purchase_rate: num(r.purchase_rate),
+      weighted_average_rate: num(r.weighted_average_rate),
+      sale_discount_percent: num(r.sale_discount_percent),
+      sale_rate: num(r.sale_rate),
+      margin_percent: num(r.margin_percent),
+      packing: num(r.packing, 1),
+      bulk_rate: num(r.bulk_rate),
+      ctn_rate: num(r.ctn_rate),
+      ws_rate: num(r.ws_rate),
+      bulk_qty: num(r.bulk_qty),
+      stock_quantity: num(r.stock_quantity),
+      is_active: r.is_active !== false,
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.CUSTOMERS) && snapshot.CUSTOMERS.length > 0) {
+    const mapped = snapshot.CUSTOMERS.map((r: any) => ({
+      id: num(r.id),
+      name: r.name || '',
+      phone: r.phone || '',
+      address: r.address || '',
+      total_purchase: num(r.total_purchase),
+      total_paid: num(r.total_paid),
+      total_due: num(r.total_due),
+      loyalty_points: num(r.loyalty_points),
+      qr_code: r.qr_code || undefined,
+      custom_redemption_rate: r.custom_redemption_rate !== null && r.custom_redemption_rate !== undefined ? num(r.custom_redemption_rate) : null,
+      is_active: r.is_active !== false,
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.CUSTOMERS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.SUPPLIERS) && snapshot.SUPPLIERS.length > 0) {
+    const mapped = snapshot.SUPPLIERS.map((r: any) => ({
+      id: num(r.id),
+      name: r.name || '',
+      phone: r.phone || '',
+      address: r.address || '',
+      is_active: r.is_active !== false,
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.SUPPLIERS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.PURCHASES) && snapshot.PURCHASES.length > 0) {
+    const mapped = snapshot.PURCHASES.map((r: any) => ({
+      id: num(r.id),
+      purchase_no: r.purchase_no || `PUR-${r.id}`,
+      supplier_id: r.supplier_id ? num(r.supplier_id) : null,
+      sub_category_id: num(r.item_id || r.sub_category_id),
+      total_pieces: num(r.quantity || r.total_pieces, 1),
+      total_cft: num(r.quantity || r.total_cft, 1),
+      rate_per_cft: num(r.unit_cost || r.rate_per_cft),
+      total_amount: num(r.total_amount),
+      paid_amount: num(r.paid_amount),
+      due_amount: num(r.due_amount),
+      purchase_date: r.purchase_date ? String(r.purchase_date).split('T')[0] : new Date().toISOString().split('T')[0],
+      notes: r.notes || '',
+      status: r.status || 'completed',
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.PURCHASES, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.SALES) && snapshot.SALES.length > 0) {
+    const mapped = snapshot.SALES.map((r: any) => ({
+      id: num(r.id),
+      invoice_no: r.invoice_no || `INV-${r.id}`,
+      customer_id: r.customer_id ? num(r.customer_id) : null,
+      total_items: num(r.total_items, 1),
+      total_cft: num(r.total_items, 1),
+      subtotal: num(r.subtotal),
+      tax_rate: num(r.tax_rate),
+      tax_amount: num(r.tax_amount),
+      discount: num(r.discount),
+      grand_total: num(r.grand_total),
+      paid_amount: num(r.paid_amount),
+      due_amount: num(r.due_amount),
+      payment_method: r.payment_method || 'cash',
+      points_earned: num(r.points_earned),
+      points_redeemed: num(r.points_redeemed),
+      points_discount_amount: num(r.points_discount_amount),
+      sale_date: r.sale_date || new Date().toISOString(),
+      status: r.status || 'completed',
+      notes: r.notes || '',
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.SALES, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.SALE_ITEMS) && snapshot.SALE_ITEMS.length > 0) {
+    const mapped = snapshot.SALE_ITEMS.map((r: any) => ({
+      id: num(r.id),
+      sale_id: num(r.sale_id),
+      wood_stock_id: r.item_def_id ? num(r.item_def_id) : undefined,
+      serial: r.serial_no || '',
+      sku: r.sku || '',
+      description: r.description || '',
+      qty: num(r.quantity, 1),
+      quantity: num(r.quantity, 1),
+      rate: num(r.unit_price),
+      unit_price: num(r.unit_price),
+      line_total: num(r.subtotal),
+      subtotal: num(r.subtotal),
+    }));
+    setStoredItem(STORAGE_KEYS.SALE_ITEMS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.PAYMENTS) && snapshot.PAYMENTS.length > 0) {
+    const mapped = snapshot.PAYMENTS.map((r: any) => ({
+      id: num(r.id),
+      sale_id: r.sale_id ? num(r.sale_id) : null,
+      purchase_id: r.purchase_id ? num(r.purchase_id) : null,
+      payment_type: r.payment_type || 'customer_payment',
+      amount: num(r.amount),
+      payment_method: r.payment_method || 'cash',
+      reference_no: r.reference_no || '',
+      payment_date: r.payment_date ? String(r.payment_date).split('T')[0] : new Date().toISOString().split('T')[0],
+      notes: r.notes || '',
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.PAYMENTS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.EXPENSES) && snapshot.EXPENSES.length > 0) {
+    const mapped = snapshot.EXPENSES.map((r: any) => ({
+      id: num(r.id),
+      title: r.title || '',
+      category: r.category || 'other',
+      amount: num(r.amount),
+      expense_date: r.expense_date ? String(r.expense_date).split('T')[0] : new Date().toISOString().split('T')[0],
+      notes: r.notes || '',
+      created_by: num(r.created_by, 1),
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.EXPENSES, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  if (Array.isArray(snapshot.ACTIVITY_LOGS) && snapshot.ACTIVITY_LOGS.length > 0) {
+    const mapped = snapshot.ACTIVITY_LOGS.map((r: any) => ({
+      id: num(r.id),
+      user_id: num(r.user_id, 1),
+      username: r.username || 'system',
+      action: r.action || 'UPDATE',
+      table_name: r.table_name || 'SYSTEM',
+      record_id: r.record_id || '',
+      details: r.details || '',
+      created_at: r.created_at || new Date().toISOString(),
+    }));
+    setStoredItem(STORAGE_KEYS.LOGS, mapped);
+    syncedTables++;
+    totalRows += mapped.length;
+  }
+
+  notifyStorageChange();
+  return { syncedTables, totalRows };
+}
+
