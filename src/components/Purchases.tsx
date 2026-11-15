@@ -21,7 +21,7 @@ import {
   recordPayment,
   getSettings
 } from '../lib/storage';
-import { Purchase, UserRole } from '../types';
+import { ItemDefinition, Purchase, UserRole } from '../types';
 import { formatCurrency } from '../lib/cft';
 
 interface PurchasesProps {
@@ -37,15 +37,22 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
 
+  const getDefaultPurchaseQty = (item?: ItemDefinition): number => {
+    if (!item) return 1;
+    const rQty = Number(item.reorder_qty);
+    return Number.isFinite(rQty) && rQty > 0 ? rQty : 1;
+  };
+
   // Create Purchase Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [supplierId, setSupplierId] = useState<number | ''>(suppliers[0]?.id || '');
   const [selectedItemId, setSelectedItemId] = useState<number | ''>(items[0]?.id || '');
-  const [quantity, setQuantity] = useState<number>(10);
-  const [unitCost, setUnitCost] = useState<number>(items[0]?.purchase_rate || 100);
+  const [quantity, setQuantity] = useState<number>(() => getDefaultPurchaseQty(items[0]));
+  const [unitCost, setUnitCost] = useState<number>(() => items[0]?.purchase_rate ?? 0);
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [purchaseDate, setPurchaseDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState<string>('');
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Purchase Detail / Record Payment Modal
   const [viewingPurchase, setViewingPurchase] = useState<Purchase | null>(null);
@@ -54,13 +61,32 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
   const [paymentMethod, setPaymentMethod] = useState('bank');
   const [payRef, setPayRef] = useState('');
 
-  const isEditable = userRole === 'admin' || userRole === 'manager' || userRole === 'warehouse_staff';
+  const isEditable =
+    userRole === 'admin' ||
+    userRole === 'manager' ||
+    userRole === 'warehouse_staff' ||
+    userRole === 'purchase_manager' ||
+    userRole === 'inventory_manager';
+
+  const handleOpenAddModal = () => {
+    const defaultItem = items.find((i) => i.id === Number(selectedItemId)) || items[0];
+    setSupplierId(suppliers.some((s) => s.id === Number(supplierId)) ? supplierId : suppliers[0]?.id || '');
+    setSelectedItemId(defaultItem?.id || '');
+    setQuantity(getDefaultPurchaseQty(defaultItem));
+    setUnitCost(defaultItem?.purchase_rate ?? 0);
+    setPaidAmount(0);
+    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setNotes('');
+    setActionError(null);
+    setShowAddModal(true);
+  };
 
   const handleItemSelectChange = (itemId: number) => {
     setSelectedItemId(itemId);
     const matched = items.find((i) => i.id === itemId);
-    if (matched && matched.purchase_rate) {
-      setUnitCost(matched.purchase_rate);
+    setQuantity(getDefaultPurchaseQty(matched));
+    if (matched) {
+      setUnitCost(matched.purchase_rate ?? 0);
     }
   };
 
@@ -68,11 +94,12 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
     e.preventDefault();
     const matchedItem = items.find((i) => i.id === Number(selectedItemId));
     const itemName = matchedItem ? matchedItem.item_name : 'Retail Stock Inventory';
-    const computedTotal = Math.round(quantity * unitCost * 100) / 100;
 
     const res = savePurchase({
       supplier_id: supplierId ? Number(supplierId) : null,
-      sub_category_id: 1,
+      sub_category_id: Number(matchedItem?.category_id) || 1,
+      item_id: matchedItem ? matchedItem.id : null,
+      quantity,
       rate_per_cft: unitCost,
       paid_amount: paidAmount,
       purchase_date: purchaseDate,
@@ -80,11 +107,12 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
     });
 
     if (res.success) {
+      setActionError(null);
       setShowAddModal(false);
       setPaidAmount(0);
       setNotes('');
     } else {
-      alert(res.message);
+      setActionError(res.message);
     }
   };
 
@@ -103,6 +131,7 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
     });
 
     if (res.success) {
+      setActionError(null);
       setShowPaymentModal(false);
       setPaymentMethodAmt(0);
       setPayRef('');
@@ -110,7 +139,7 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
       const updated = getPurchases().find((p) => p.id === viewingPurchase.id);
       if (updated) setViewingPurchase(updated);
     } else {
-      alert(res.message);
+      setActionError(res.message);
     }
   };
 
@@ -124,8 +153,18 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
     );
   });
 
+  const selectedCatalogItem = items.find((it) => it.id === Number(selectedItemId));
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      {actionError && (
+        <div className="flex items-center justify-between gap-2 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-2.5 rounded-xl text-xs font-bold">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="text-rose-500 hover:text-rose-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
         <div>
@@ -139,7 +178,7 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
 
         {isEditable && (
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAddModal}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Record New Purchase
@@ -309,7 +348,14 @@ export const Purchases: React.FC<PurchasesProps> = ({ userRole }) => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-600 font-medium mb-1">Purchase Quantity</label>
+                  <label className="block text-gray-600 font-medium mb-1">
+                    Purchase Quantity
+                    {selectedCatalogItem && Number(selectedCatalogItem.reorder_qty) > 0 && (
+                      <span className="ml-1 text-[10px] font-bold text-indigo-600">
+                        (Reorder Qty: {selectedCatalogItem.reorder_qty})
+                      </span>
+                    )}
+                  </label>
                   <input
                     type="number"
                     min="1"

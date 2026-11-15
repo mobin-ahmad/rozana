@@ -3013,6 +3013,8 @@ export function getPurchases(): Purchase[] {
 export function savePurchase(data: {
   supplier_id?: number | null;
   sub_category_id: number;
+  item_id?: number | null;
+  quantity?: number;
   rate_per_cft: number;
   paid_amount: number;
   purchase_date: string;
@@ -3026,9 +3028,14 @@ export function savePurchase(data: {
   const purchases = getPurchases();
   const woodStocks = getWoodStocks().filter((w) => w.sub_category_id === data.sub_category_id);
 
-  const totalPieces = woodStocks.reduce((sum, w) => sum + w.qty, 0);
-  const totalCft = Math.round(woodStocks.reduce((sum, w) => sum + w.cft * w.qty, 0) * 10000) / 10000;
-  const ratePerCft = data.rate_per_cft || 1600;
+  const hasExplicitQty = data.quantity !== undefined && Number(data.quantity) > 0;
+  const totalPieces = hasExplicitQty
+    ? Number(data.quantity)
+    : woodStocks.reduce((sum, w) => sum + w.qty, 0);
+  const totalCft = hasExplicitQty
+    ? Number(data.quantity)
+    : Math.round(woodStocks.reduce((sum, w) => sum + w.cft * w.qty, 0) * 10000) / 10000;
+  const ratePerCft = data.rate_per_cft !== undefined && data.rate_per_cft !== null ? Number(data.rate_per_cft) : 0;
   const totalAmount = Math.round(totalCft * ratePerCft * 100) / 100;
   const paidAmount = Math.min(data.paid_amount || 0, totalAmount);
   const dueAmount = Math.round((totalAmount - paidAmount) * 100) / 100;
@@ -3056,7 +3063,26 @@ export function savePurchase(data: {
 
   purchases.unshift(newPurchase);
   setStoredItem(STORAGE_KEYS.PURCHASES, purchases);
-  pgSync(TABLE_NAMES.PURCHASES, getActiveChainId(), newPurchase);
+  pgSync(TABLE_NAMES.PURCHASES, getActiveChainId(), {
+    ...newPurchase,
+    item_id: data.item_id || null,
+    quantity: totalPieces,
+    unit_cost: ratePerCft,
+  });
+
+  // Update stock_quantity on item definition if item_id was provided
+  if (data.item_id && totalPieces > 0) {
+    const itemDefs = getItemDefinitions();
+    const itemIdx = itemDefs.findIndex((it) => it.id === Number(data.item_id));
+    if (itemIdx !== -1) {
+      itemDefs[itemIdx] = {
+        ...itemDefs[itemIdx],
+        stock_quantity: Number(itemDefs[itemIdx].stock_quantity || 0) + totalPieces,
+      };
+      setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, itemDefs);
+      pgSync(TABLE_NAMES.ITEM_DEFINITIONS, getActiveChainId(), itemDefs[itemIdx]);
+    }
+  }
 
   // Link wood stocks to this purchase
   const allStocks = getWoodStocks();
