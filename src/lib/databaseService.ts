@@ -308,4 +308,64 @@ export const databaseService = {
       return null;
     }
   },
+
+  async getPurgeCounts(): Promise<{
+    success: boolean;
+    connected: boolean;
+    database?: string;
+    host?: string;
+    port?: number;
+    counts: Record<string, number>;
+    globalUsersPreserved: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/db/purge-counts');
+      const data = await res.json();
+      return data;
+    } catch (err: unknown) {
+      return {
+        success: false,
+        connected: false,
+        counts: {
+          organizations: 0,
+          branches: 0,
+          users: 0,
+          item_definitions: 0,
+          item_groups: 0,
+          categories: 0,
+          suppliers: 0,
+          customers: 0,
+        },
+        globalUsersPreserved: 1,
+        error: (err as Error).message,
+      };
+    }
+  },
+
+  async purgeRecords(targets: string[]): Promise<{
+    success: boolean;
+    connected: boolean;
+    database?: string;
+    deletedCounts?: Record<string, number>;
+    remainingCounts?: Record<string, number>;
+    globalUsersPreserved?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/db/purge-records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets }),
+      });
+      return await res.json();
+    } catch (err: unknown) {
+      return {
+        success: false,
+        connected: false,
+        error: (err as Error).message,
+      };
+    }
+  },
 };
+

@@ -118,6 +118,21 @@ const STORAGE_KEYS = {
   ROLES: 'ROLES',
 };
 
+const PURGE_FLAG_KEYS = {
+  ORGS_PURGED: 'ROZANA_PURGED_ORGS',
+  BRANCHES_PURGED: 'ROZANA_PURGED_BRANCHES',
+};
+
+export type PurgeTargetKey =
+  | 'organizations'
+  | 'branches'
+  | 'users'
+  | 'item_definitions'
+  | 'item_groups'
+  | 'categories'
+  | 'suppliers'
+  | 'customers';
+
 export const MOBIN_SUPER_ADMIN: User = {
   id: 1,
   full_name: 'Mobin',
@@ -509,13 +524,16 @@ export function getOrganizationAccessState(chain?: StoreChain | null): {
 
 export function getStoreChains(): StoreChain[] {
   try {
+    const orgsPurged = localStorage.getItem(PURGE_FLAG_KEYS.ORGS_PURGED) === 'true';
     const raw = localStorage.getItem(STORAGE_KEYS.STORE_CHAINS);
     if (!raw) {
+      if (orgsPurged) return [];
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(INITIAL_STORE_CHAINS));
       return INITIAL_STORE_CHAINS;
     }
     const parsed: StoreChain[] = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
+      if (orgsPurged) return [];
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(INITIAL_STORE_CHAINS));
       return INITIAL_STORE_CHAINS;
     }
@@ -543,10 +561,12 @@ export function getStoreChains(): StoreChain[] {
         subscription_expiry_date: c.subscription_expiry_date || '2027-12-31',
       };
     });
-    const jksIdx = normalized.findIndex((c) => c.id === 'chain-jks' || c.code === 'JKS');
-    if (jksIdx === -1) {
-      normalized.push(INITIAL_STORE_CHAINS[1]);
-      dirty = true;
+    if (!orgsPurged) {
+      const jksIdx = normalized.findIndex((c) => c.id === 'chain-jks' || c.code === 'JKS');
+      if (jksIdx === -1) {
+        normalized.push(INITIAL_STORE_CHAINS[1]);
+        dirty = true;
+      }
     }
     if (dirty) {
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(normalized));
@@ -567,6 +587,18 @@ export function getActiveChainId(): string {
 
 export function getActiveStoreChain(): StoreChain {
   const chains = getStoreChains();
+  if (chains.length === 0) {
+    return {
+      ...DEFAULT_STORE_CHAIN,
+      id: 'chain-default',
+      name: 'No Store Chain Registered',
+      code: 'GLOBAL',
+      address: 'Global Platform Console',
+      plan_id: 'plan-enterprise',
+      status: 'active',
+      is_active: true,
+    };
+  }
   const activeId = getActiveChainId();
   return chains.find((c) => c.id === activeId) || chains[0] || DEFAULT_STORE_CHAIN;
 }
@@ -844,6 +876,8 @@ export function registerOrganization(data: {
     is_active: orgStatus === 'active',
   };
 
+  localStorage.removeItem(PURGE_FLAG_KEYS.ORGS_PURGED);
+  localStorage.removeItem(PURGE_FLAG_KEYS.BRANCHES_PURGED);
   const updatedChains = [...chains, newChain];
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(updatedChains));
 
@@ -1352,6 +1386,8 @@ export function initializeStorageIfNeeded(): void {
 }
 
 export function resetToDemoData(): void {
+  localStorage.removeItem(PURGE_FLAG_KEYS.ORGS_PURGED);
+  localStorage.removeItem(PURGE_FLAG_KEYS.BRANCHES_PURGED);
   const activeChainId = getActiveChainId();
   if (activeChainId === 'chain-default') {
     setStoredItem(STORAGE_KEYS.USERS, initialUsers);
@@ -1977,17 +2013,23 @@ export function getOrganizationUsers(chainId: string): User[] {
 }
 
 export function getOrganizationBranches(chainId: string): StoreBranch[] {
+  const branchesPurged = localStorage.getItem(PURGE_FLAG_KEYS.BRANCHES_PURGED) === 'true';
   const key = getTenantStorageKey(STORAGE_KEYS.SETTINGS, chainId);
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
       const s: SystemSettings = JSON.parse(raw);
-      if (Array.isArray(s.branches) && s.branches.length > 0) {
-        return s.branches;
+      if (Array.isArray(s.branches)) {
+        if (s.branches.length > 0 || branchesPurged) {
+          return s.branches;
+        }
       }
     }
   } catch {
     // ignore
+  }
+  if (branchesPurged) {
+    return [];
   }
   if (chainId === 'chain-default') {
     return (initialSettings.branches || []).map((b) => ({
@@ -3640,7 +3682,8 @@ export function getSettings(): SystemSettings {
     setStoredItem(STORAGE_KEYS.SETTINGS, settings);
   }
 
-  if (!settings.branches || settings.branches.length === 0) {
+  const branchesPurged = localStorage.getItem(PURGE_FLAG_KEYS.BRANCHES_PURGED) === 'true';
+  if ((!settings.branches || settings.branches.length === 0) && !branchesPurged) {
     settings.branches = initialSettings.branches ? [...initialSettings.branches] : [
       {
         id: 'br-1',
@@ -3660,6 +3703,8 @@ export function getSettings(): SystemSettings {
     ];
     settings.active_branch_id = 'br-1';
     setStoredItem(STORAGE_KEYS.SETTINGS, settings);
+  } else if (!settings.branches) {
+    settings.branches = [];
   }
 
   if (!settings.active_branch_id && settings.branches.length > 0) {
@@ -3830,6 +3875,7 @@ export function saveBranchForOrg(
     logActivity('CREATE', 'BRANCHES', savedBranch.id, `Created branch "${savedBranch.name}" (${savedBranch.code})`);
   }
 
+  localStorage.removeItem(PURGE_FLAG_KEYS.BRANCHES_PURGED);
   saveSettings({ ...currentSettings, branches });
   pgSync(TABLE_NAMES.BRANCHES, activeChain.id, { ...savedBranch, chain_id: activeChain.id });
   return { success: true, message: `Branch "${savedBranch.name}" saved successfully.`, branch: savedBranch };
@@ -4603,4 +4649,164 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
   notifyStorageChange();
   return { syncedTables, totalRows };
 }
+
+function collectAllKnownChainIds(): string[] {
+  const ids = new Set<string>(['chain-default']);
+  try {
+    for (const c of getStoreChains()) {
+      if (c?.id) ids.add(c.id);
+    }
+    const prefixes = [
+      `${STORAGE_KEYS.USERS}_`,
+      `${STORAGE_KEYS.SETTINGS}_`,
+      `${STORAGE_KEYS.ITEM_DEFINITIONS}_`,
+      `${STORAGE_KEYS.ITEM_GROUPS}_`,
+      `${STORAGE_KEYS.CATEGORIES}_`,
+      `${STORAGE_KEYS.SUPPLIERS}_`,
+      `${STORAGE_KEYS.CUSTOMERS}_`,
+      `${STORAGE_KEYS.ROLES}_`,
+    ];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      for (const p of prefixes) {
+        if (k.startsWith(p)) {
+          const suffix = k.slice(p.length);
+          if (suffix) ids.add(suffix);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return Array.from(ids);
+}
+
+export function getLocalPurgeCounts(): Record<PurgeTargetKey, number> {
+  const chains = getStoreChains();
+  const chainIds = collectAllKnownChainIds();
+
+  let branchesCount = 0;
+  let usersCount = 0;
+  let itemDefsCount = 0;
+  let itemGroupsCount = 0;
+  let categoriesCount = 0;
+  let suppliersCount = 0;
+  let customersCount = 0;
+
+  for (const cid of chainIds) {
+    // Only count branches for active chains if chains exist, or chain-default if none
+    if (chains.some((c) => c.id === cid)) {
+      branchesCount += getOrganizationBranches(cid).length;
+    }
+    usersCount += getOrganizationUsers(cid).length;
+    itemDefsCount += readRawTenantList<ItemDefinition>(STORAGE_KEYS.ITEM_DEFINITIONS, cid, initialItemDefinitions).length;
+    itemGroupsCount += readRawTenantList<ItemGroup>(STORAGE_KEYS.ITEM_GROUPS, cid, initialItemGroups).length;
+    categoriesCount += readRawTenantList<Category>(STORAGE_KEYS.CATEGORIES, cid, initialCategories).length;
+    suppliersCount += readRawTenantList<Supplier>(STORAGE_KEYS.SUPPLIERS, cid, initialSuppliers).length;
+    customersCount += readRawTenantList<Customer>(STORAGE_KEYS.CUSTOMERS, cid, initialCustomers).length;
+  }
+
+  return {
+    organizations: chains.length,
+    branches: branchesCount,
+    users: usersCount,
+    item_definitions: itemDefsCount,
+    item_groups: itemGroupsCount,
+    categories: categoriesCount,
+    suppliers: suppliersCount,
+    customers: customersCount,
+  };
+}
+
+export function purgeSelectedLocalData(targets: PurgeTargetKey[]): void {
+  if (!targets || targets.length === 0) return;
+  const targetSet = new Set<PurgeTargetKey>(targets);
+  const chainIds = collectAllKnownChainIds();
+
+  suppressPgSync = true;
+  try {
+    if (targetSet.has('item_definitions')) {
+      for (const cid of chainIds) {
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.ITEM_DEFINITIONS, cid), JSON.stringify([]));
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.WOOD_STOCKS, cid), JSON.stringify([]));
+      }
+    }
+
+    if (targetSet.has('item_groups')) {
+      for (const cid of chainIds) {
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.ITEM_GROUPS, cid), JSON.stringify([]));
+      }
+    }
+
+    if (targetSet.has('categories')) {
+      for (const cid of chainIds) {
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.CATEGORIES, cid), JSON.stringify([]));
+      }
+    }
+
+    if (targetSet.has('suppliers')) {
+      for (const cid of chainIds) {
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.SUPPLIERS, cid), JSON.stringify([]));
+      }
+    }
+
+    if (targetSet.has('customers')) {
+      for (const cid of chainIds) {
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.CUSTOMERS, cid), JSON.stringify([]));
+      }
+    }
+
+    if (targetSet.has('branches')) {
+      localStorage.setItem(PURGE_FLAG_KEYS.BRANCHES_PURGED, 'true');
+      for (const cid of chainIds) {
+        const settingsKey = getTenantStorageKey(STORAGE_KEYS.SETTINGS, cid);
+        try {
+          const raw = localStorage.getItem(settingsKey);
+          const parsed = raw ? JSON.parse(raw) : { ...initialSettings };
+          localStorage.setItem(
+            settingsKey,
+            JSON.stringify({
+              ...parsed,
+              branches: [],
+              active_branch_id: '',
+              branch_name: '',
+            })
+          );
+        } catch {
+          localStorage.setItem(
+            settingsKey,
+            JSON.stringify({ ...initialSettings, branches: [], active_branch_id: '', branch_name: '' })
+          );
+        }
+      }
+    }
+
+    if (targetSet.has('users')) {
+      for (const cid of chainIds) {
+        const usersKey = getTenantStorageKey(STORAGE_KEYS.USERS, cid);
+        // Always preserve Global Super Admin user (mobin) on chain-default; clear all other users
+        localStorage.setItem(
+          usersKey,
+          JSON.stringify(cid === 'chain-default' ? [MOBIN_SUPER_ADMIN] : [])
+        );
+        const curUserKey = getTenantStorageKey(STORAGE_KEYS.CURRENT_USER, cid);
+        localStorage.setItem(curUserKey, JSON.stringify(MOBIN_SUPER_ADMIN));
+      }
+      localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, JSON.stringify(false));
+    }
+
+    if (targetSet.has('organizations')) {
+      localStorage.setItem(PURGE_FLAG_KEYS.ORGS_PURGED, 'true');
+      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, 'chain-default');
+    }
+  } finally {
+    suppressPgSync = false;
+  }
+
+  notifyStorageChange();
+}
+
 

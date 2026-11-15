@@ -18,7 +18,9 @@ import {
   MonitorCheck,
   Layers,
   Globe,
-  Crown
+  Crown,
+  Trash2,
+  Database
 } from 'lucide-react';
 import {
   getStoreChains,
@@ -35,6 +37,7 @@ import {
 } from '../lib/storage';
 import { StoreChain, User } from '../types';
 import { RegisterStoreChainModal } from './RegisterStoreChainModal';
+import { DatabasePurgeModal } from './DatabasePurgeModal';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: User) => void;
@@ -45,6 +48,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [selectedChainId, setSelectedChainId] = useState<string>(() => getActiveStoreChain().id);
   const [isRegisterChainModalOpen, setIsRegisterChainModalOpen] = useState<boolean>(false);
   const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState<boolean>(false);
+  const [isPurgeModalOpen, setIsPurgeModalOpen] = useState<boolean>(false);
 
   // Form inputs
   const [identifier, setIdentifier] = useState<string>('mobin');
@@ -133,6 +137,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         setErrorMsg(res.message || 'Global Admin sign-in failed.');
       }
     }, 200);
+  };
+
+  const handleDatabasePurged = () => {
+    const refreshedChains = getStoreChains();
+    setStoreChainsState(refreshedChains);
+    setErrorMsg(null);
+
+    if (refreshedChains.length > 0) {
+      const nextChain = refreshedChains.find((c) => c.id === selectedChainId) || refreshedChains[0];
+      setSelectedChainId(nextChain.id);
+      setActiveStoreChain(nextChain.id, true);
+    } else {
+      setSelectedChainId(getActiveStoreChain().id);
+    }
+
+    const updatedSettings = getSettings();
+    if (updatedSettings.branches && updatedSettings.branches.length > 0) {
+      setSelectedBranchId(updatedSettings.branches[0].id);
+    } else {
+      setSelectedBranchId('');
+    }
+
+    const remainingUsers = getUsers();
+    const stillExists = remainingUsers.some(
+      (u) => u.username.toLowerCase() === identifier.toLowerCase() || u.email.toLowerCase() === identifier.toLowerCase()
+    );
+    if (!stillExists) {
+      setIdentifier(MOBIN_SUPER_ADMIN.username);
+      setPassword(MOBIN_SUPER_ADMIN.password || '123456');
+    }
   };
 
   return (
@@ -271,6 +305,31 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   <span>Wood CFT Log Measurement & Standard Hardware</span>
                 </div>
               </div>
+              {/* Database Cleanup / Selective Record Deletion (Left Side Option) */}
+              <div className="pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsPurgeModalOpen(true)}
+                  className="w-full p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-400/50 transition-all flex items-center justify-between gap-3 text-left group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 flex items-center justify-center shrink-0">
+                      <Trash2 className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-extrabold text-rose-200 flex items-center gap-1.5">
+                        <span>Delete Database Records</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                        Select tables to clear (Except Global User)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-900/80 border border-rose-500/30 text-[10px] font-bold text-rose-300 group-hover:text-white flex items-center gap-1 shrink-0">
+                    <Database className="w-3 h-3" /> Manage
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Bottom Security Badge */}
@@ -337,11 +396,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   onChange={(e) => handleChainChange(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all cursor-pointer"
                 >
-                  {storeChains.map((chain) => (
-                    <option key={chain.id} value={chain.id}>
-                      {chain.name} ({chain.code}) — {chain.address || 'Head Office'}
+                  {storeChains.length > 0 ? (
+                    storeChains.map((chain) => (
+                      <option key={chain.id} value={chain.id}>
+                        {chain.name} ({chain.code}) — {chain.address || 'Head Office'}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={activeChain.id}>
+                      No Store Chains Registered — Global User Portal Only
                     </option>
-                  ))}
+                  )}
                 </select>
               </div>
 
@@ -494,26 +559,32 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {currentChainUsers
-                  .filter((u) => !isUserSuperAdmin(u))
-                  .slice(0, 6)
-                  .map((u) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => handleQuickRoleSelect(u)}
-                    className={`p-2 rounded-xl text-left border transition-all text-xs flex flex-col justify-between cursor-pointer ${
-                      identifier === u.email || identifier === u.username
-                        ? 'bg-indigo-600/20 border-indigo-500 text-white'
-                        : 'bg-slate-950/60 border-slate-800 hover:bg-slate-800/60 text-slate-300'
-                    }`}
-                  >
-                    <div className="font-bold truncate text-[11px] text-white">{u.full_name}</div>
-                    <div className="text-[9px] uppercase tracking-wider font-extrabold text-indigo-400 mt-0.5">
-                      {u.role.replace('_', ' ')}
-                    </div>
-                  </button>
-                ))}
+                {currentChainUsers.filter((u) => !isUserSuperAdmin(u)).length > 0 ? (
+                  currentChainUsers
+                    .filter((u) => !isUserSuperAdmin(u))
+                    .slice(0, 6)
+                    .map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => handleQuickRoleSelect(u)}
+                      className={`p-2 rounded-xl text-left border transition-all text-xs flex flex-col justify-between cursor-pointer ${
+                        identifier === u.email || identifier === u.username
+                          ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                          : 'bg-slate-950/60 border-slate-800 hover:bg-slate-800/60 text-slate-300'
+                      }`}
+                    >
+                      <div className="font-bold truncate text-[11px] text-white">{u.full_name}</div>
+                      <div className="text-[9px] uppercase tracking-wider font-extrabold text-indigo-400 mt-0.5">
+                        {u.role.replace('_', ' ')}
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="col-span-full p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 text-center">
+                    No organization staff accounts found. Sign in as <span className="text-amber-300 font-bold">Global User (mobin)</span> or register a new Store Chain.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -545,6 +616,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           setSelectedChainId(active.id);
           handleChainChange(active.id);
         }}
+      />
+
+      {/* Delete Database Records Modal */}
+      <DatabasePurgeModal
+        isOpen={isPurgeModalOpen}
+        onClose={() => setIsPurgeModalOpen(false)}
+        onPurged={handleDatabasePurged}
       />
 
       {/* Forgot Password Modal */}

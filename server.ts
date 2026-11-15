@@ -1271,6 +1271,188 @@ app.post('/api/db/sync-batch', async (req: Request, res: Response) => {
   }
 });
 
+const PURGE_TARGET_ORDER = [
+  'item_definitions',
+  'categories',
+  'item_groups',
+  'suppliers',
+  'customers',
+  'branches',
+  'users',
+  'organizations',
+] as const;
+
+type PurgeTarget = (typeof PURGE_TARGET_ORDER)[number];
+
+async function queryPurgeCounts(client: pkg.PoolClient) {
+  const safeCount = async (sql: string): Promise<number> => {
+    try {
+      const r = await client.query(sql);
+      return Number(r.rows[0]?.cnt ?? 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  const counts: Record<PurgeTarget, number> = {
+    organizations: await safeCount('SELECT COUNT(*)::int AS cnt FROM "STORE_CHAINS"'),
+    branches: await safeCount('SELECT COUNT(*)::int AS cnt FROM "BRANCHES"'),
+    users: await safeCount(
+      `SELECT COUNT(*)::int AS cnt FROM "USERS" WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
+    ),
+    item_definitions: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_DEFINITIONS"'),
+    item_groups: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_GROUPS"'),
+    categories: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CATEGORIES"'),
+    suppliers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "SUPPLIERS"'),
+    customers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CUSTOMERS"'),
+  };
+
+  const globalUsersPreserved = await safeCount(
+    `SELECT COUNT(*)::int AS cnt FROM "USERS" WHERE COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin'`
+  );
+
+  return { counts, globalUsersPreserved };
+}
+
+// 11. Selective Purge Record Counts
+app.get('/api/db/purge-counts', async (_req: Request, res: Response) => {
+  try {
+    const client = await connectWithIpv4Fallback();
+    try {
+      const { counts, globalUsersPreserved } = await queryPurgeCounts(client);
+      res.json({
+        success: true,
+        connected: true,
+        database: currentConfig.database,
+        host: currentConfig.host,
+        port: currentConfig.port,
+        counts,
+        globalUsersPreserved,
+      });
+    } finally {
+      client.release();
+    }
+  } catch (err: unknown) {
+    res.json({
+      success: false,
+      connected: false,
+      database: currentConfig.database,
+      error: (err as Error).message,
+      counts: {
+        organizations: 0,
+        branches: 0,
+        users: 0,
+        item_definitions: 0,
+        item_groups: 0,
+        categories: 0,
+        suppliers: 0,
+        customers: 0,
+      },
+      globalUsersPreserved: 1,
+    });
+  }
+});
+
+// 12. Selective Database Record Purge (Preserves Global Super Admin User)
+app.post('/api/db/purge-records', async (req: Request, res: Response) => {
+  const rawTargets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+  const validSet = new Set<PurgeTarget>(
+    rawTargets
+      .map((t: unknown) => String(t).trim().toLowerCase() as PurgeTarget)
+      .filter((t: PurgeTarget) => (PURGE_TARGET_ORDER as readonly string[]).includes(t))
+  );
+
+  if (validSet.size === 0) {
+    return res.status(400).json({
+      success: false,
+      connected: false,
+      error: 'Please select at least one record category to delete.',
+    });
+  }
+
+  try {
+    const client = await connectWithIpv4Fallback();
+    try {
+      await client.query('BEGIN');
+      const deletedCounts: Partial<Record<PurgeTarget, number>> = {};
+
+      for (const target of PURGE_TARGET_ORDER) {
+        if (!validSet.has(target)) continue;
+        let result;
+        switch (target) {
+          case 'item_definitions':
+            result = await client.query('DELETE FROM "ITEM_DEFINITIONS"');
+            deletedCounts.item_definitions = result.rowCount ?? 0;
+            break;
+          case 'categories':
+            result = await client.query('DELETE FROM "CATEGORIES"');
+            deletedCounts.categories = result.rowCount ?? 0;
+            break;
+          case 'item_groups':
+            result = await client.query('DELETE FROM "ITEM_GROUPS"');
+            deletedCounts.item_groups = result.rowCount ?? 0;
+            break;
+          case 'suppliers':
+            result = await client.query('DELETE FROM "SUPPLIERS"');
+            deletedCounts.suppliers = result.rowCount ?? 0;
+            break;
+          case 'customers':
+            result = await client.query('DELETE FROM "CUSTOMERS"');
+            deletedCounts.customers = result.rowCount ?? 0;
+            break;
+          case 'branches':
+            result = await client.query('DELETE FROM "BRANCHES"');
+            deletedCounts.branches = result.rowCount ?? 0;
+            await client.query(
+              `UPDATE "USERS" SET assigned_branch_id = 'all', assigned_branches = '["all"]'::jsonb WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
+            );
+            break;
+          case 'users':
+            result = await client.query(
+              `DELETE FROM "USERS" WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
+            );
+            deletedCounts.users = result.rowCount ?? 0;
+            break;
+          case 'organizations':
+            result = await client.query('DELETE FROM "STORE_CHAINS"');
+            deletedCounts.organizations = result.rowCount ?? 0;
+            break;
+        }
+      }
+
+      await client.query('COMMIT');
+      const { counts: remainingCounts, globalUsersPreserved } = await queryPurgeCounts(client);
+      res.json({
+        success: true,
+        connected: true,
+        database: currentConfig.database,
+        deletedCounts,
+        remainingCounts,
+        globalUsersPreserved,
+      });
+    } catch (err: unknown) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore rollback error
+      }
+      res.status(500).json({
+        success: false,
+        connected: true,
+        error: (err as Error).message,
+      });
+    } finally {
+      client.release();
+    }
+  } catch (err: unknown) {
+    res.status(503).json({
+      success: false,
+      connected: false,
+      error: (err as Error).message || 'Could not connect to PostgreSQL.',
+    });
+  }
+});
+
 // ------------------------------------------------------------------------
 // SERVER BOOTSTRAP WITH VITE MIDDLEWARE
 // ------------------------------------------------------------------------
