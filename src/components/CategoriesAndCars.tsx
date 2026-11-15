@@ -94,6 +94,9 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
   const [activeTab, setActiveTab] = useState<'groups' | 'categories' | 'brands' | 'items'>('groups');
   const [searchQuery, setSearchQuery] = useState('');
+  const [groupFilter, setGroupFilter] = useState<string>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [brandFilter, setBrandFilter] = useState<string>('ALL');
 
   // Category Modal
   const [showCatModal, setShowCatModal] = useState(false);
@@ -917,8 +920,50 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
     );
   });
 
+  const matchesItemGroup = (item: ItemDefinition, selectedGrpId: string): boolean => {
+    if (selectedGrpId === 'ALL') return true;
+    const grp = itemGroups.find(
+      (g) => String(g.id) === String(item.item_group_id) || g.group_id === String(item.item_group_id || '')
+    );
+    if (grp) return String(grp.id) === selectedGrpId;
+    return String(item.item_group_id ?? '') === selectedGrpId;
+  };
+
+  const matchesItemCategory = (item: ItemDefinition, selectedCatId: string): boolean => {
+    if (selectedCatId === 'ALL') return true;
+    const cat = categories.find(
+      (c) => String(c.id) === String(item.category_id) || c.name === String(item.category_id || '')
+    );
+    if (cat) return String(cat.id) === selectedCatId;
+    return String(item.category_id ?? '') === selectedCatId;
+  };
+
+  const matchesItemBrand = (item: ItemDefinition, selectedBrdId: string): boolean => {
+    if (selectedBrdId === 'ALL') return true;
+    const brd = brands.find(
+      (b) => String(b.id) === String(item.brand_id) || b.name === String(item.brand_name || '')
+    );
+    if (brd) return String(brd.id) === selectedBrdId;
+    return String(item.brand_id ?? '') === selectedBrdId || String(item.brand_name ?? '') === selectedBrdId;
+  };
+
+  const filterCategoryOptions =
+    groupFilter === 'ALL'
+      ? categories
+      : categories.filter((c) => {
+          const parentGrp = itemGroups.find(
+            (g) => String(g.id) === String(c.item_group_id) || g.group_id === String(c.item_group_id || '')
+          );
+          return parentGrp ? String(parentGrp.id) === groupFilter : String(c.item_group_id ?? '') === groupFilter;
+        });
+
   const filteredItems = itemDefinitions.filter((item) => {
+    if (!matchesItemGroup(item, groupFilter)) return false;
+    if (!matchesItemCategory(item, categoryFilter)) return false;
+    if (!matchesItemBrand(item, brandFilter)) return false;
+
     const q = searchQuery.toLowerCase();
+    if (!q) return true;
     return (
       item.item_code.toLowerCase().includes(q) ||
       item.item_name.toLowerCase().includes(q) ||
@@ -931,9 +976,9 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 max-w-7xl w-full mx-auto gap-4 overflow-hidden">
       {/* Top Header Card */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+      <div className="shrink-0 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-sm">
         <div>
           <h1 className="text-xl font-black text-gray-900 flex items-center gap-2">
             <FolderTree className="w-6 h-6 text-emerald-600" /> Item Setup
@@ -997,7 +1042,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
       {/* Upload Status Banner */}
       {uploadToastBanner && (
         <div
-          className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-xs font-semibold ${
+          className={`shrink-0 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-xs font-semibold ${
             uploadToastBanner.type === 'success'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
               : uploadToastBanner.type === 'warning'
@@ -1023,30 +1068,107 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         </div>
       )}
 
-      {/* Segment Action Bar: Export Template, Bulk Upload, Export Excel & Add Button */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-        {/* Search Field */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={
-              activeTab === 'categories'
-                ? 'Search categories by name or description...'
-                : activeTab === 'groups'
-                ? 'Search item groups by Group_ID or description...'
-                : activeTab === 'brands'
-                ? 'Search brands by code, name, or description...'
-                : 'Search item definitions by Code, Name, Brand or Barcode...'
-            }
-            className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-emerald-500"
-          />
+      {/* Segment Action Bar: Search, Aligned Filters, Export Template, Bulk Upload, Export Excel & Add Button */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-2.5 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm">
+        {/* Search Field + Group / Category / Brand Filters (Aligned) */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 flex-1 min-w-[280px]">
+          <div className="relative flex-[1.4] min-w-[200px]">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={
+                activeTab === 'categories'
+                  ? 'Search categories by name or description...'
+                  : activeTab === 'groups'
+                  ? 'Search item groups by Group_ID or description...'
+                  : activeTab === 'brands'
+                  ? 'Search brands by code, name, or description...'
+                  : 'Search by Name, Code, or Barcode...'
+              }
+              className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          {activeTab === 'items' && (
+            <>
+              <select
+                aria-label="Filter by Item Group"
+                value={groupFilter}
+                onChange={(e) => {
+                  const nextGrp = e.target.value;
+                  setGroupFilter(nextGrp);
+                  if (nextGrp !== 'ALL' && categoryFilter !== 'ALL') {
+                    const stillValid = categories.some((c) => {
+                      if (String(c.id) !== categoryFilter) return false;
+                      const parentGrp = itemGroups.find(
+                        (g) => String(g.id) === String(c.item_group_id) || g.group_id === String(c.item_group_id || '')
+                      );
+                      return parentGrp ? String(parentGrp.id) === nextGrp : String(c.item_group_id ?? '') === nextGrp;
+                    });
+                    if (!stillValid) setCategoryFilter('ALL');
+                  }
+                }}
+                className="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-emerald-500 flex-1 min-w-[130px] max-w-[190px]"
+              >
+                <option value="ALL">All Groups ({itemGroups.length})</option>
+                {itemGroups.map((g) => (
+                  <option key={g.id} value={String(g.id)}>
+                    {g.group_id}{g.group_description ? ` — ${g.group_description}` : ''}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Filter by Category"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-emerald-500 flex-1 min-w-[130px] max-w-[190px]"
+              >
+                <option value="ALL">All Categories ({filterCategoryOptions.length})</option>
+                {filterCategoryOptions.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Filter by Brand"
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                className="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-emerald-500 flex-1 min-w-[120px] max-w-[180px]"
+              >
+                <option value="ALL">All Brands ({brands.length})</option>
+                {brands.map((b) => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+
+              {(groupFilter !== 'ALL' || categoryFilter !== 'ALL' || brandFilter !== 'ALL' || searchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGroupFilter('ALL');
+                    setCategoryFilter('ALL');
+                    setBrandFilter('ALL');
+                    setSearchQuery('');
+                  }}
+                  title="Clear search and filters"
+                  className="px-2.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl shrink-0 cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {/* 3 Mandated Segment Options + Add Button */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0 ml-auto">
           {/* Option 1: Export Template */}
           <button
             onClick={handleExportTemplate}
@@ -1105,11 +1227,11 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
       {/* SEGMENT 1: Categories Tab Content */}
       {activeTab === 'categories' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 font-bold text-gray-700 uppercase text-[10px]">
+        <div className="flex-1 min-h-0 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 overflow-auto">
+            <table className="w-full min-w-max text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
+                <tr className="font-bold text-gray-700 uppercase text-[10px] whitespace-nowrap">
                   <th className="p-3.5">Category Name</th>
                   <th className="p-3.5">Parent Item Group</th>
                   <th className="p-3.5">Description</th>
@@ -1123,7 +1245,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               <tbody className="divide-y divide-gray-100">
                 {filteredCategories.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-gray-400 font-semibold">
+                    <td colSpan={isEditable ? 8 : 7} className="p-8 text-center text-gray-400 font-semibold">
                       No categories found.
                     </td>
                   </tr>
@@ -1198,11 +1320,11 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
       {/* SEGMENT 3: Item Group Tab Content */}
       {activeTab === 'groups' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 font-bold text-gray-700 uppercase text-[10px]">
+        <div className="flex-1 min-h-0 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 overflow-auto">
+            <table className="w-full min-w-max text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
+                <tr className="font-bold text-gray-700 uppercase text-[10px] whitespace-nowrap">
                   <th className="p-3.5">Group_ID</th>
                   <th className="p-3.5">Group_Description</th>
                   <th className="p-3.5">Status</th>
@@ -1214,16 +1336,18 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               <tbody className="divide-y divide-gray-100">
                 {filteredGroups.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-gray-400 font-semibold">
+                    <td colSpan={isEditable ? 6 : 5} className="p-8 text-center text-gray-400 font-semibold">
                       No item groups found.
                     </td>
                   </tr>
                 ) : (
                   filteredGroups.map((g) => (
                     <tr key={g.id} className="hover:bg-gray-50">
-                      <td className="p-3.5 font-black text-emerald-800 font-mono flex items-center gap-2">
-                        <Tag className="w-3.5 h-3.5 text-emerald-600" />
-                        {g.group_id}
+                      <td className="p-3.5 font-black text-emerald-800 font-mono">
+                        <div className="flex items-center gap-2">
+                          <Tag className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{g.group_id}</span>
+                        </div>
                       </td>
                       <td className="p-3.5 text-gray-700 font-medium">{g.group_description || '—'}</td>
                       <td className="p-3.5">
@@ -1270,11 +1394,11 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
       {/* SEGMENT: Brand Tab Content */}
       {activeTab === 'brands' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 font-bold text-gray-700 uppercase text-[10px]">
+        <div className="flex-1 min-h-0 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 overflow-auto">
+            <table className="w-full min-w-max text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
+                <tr className="font-bold text-gray-700 uppercase text-[10px] whitespace-nowrap">
                   <th className="p-3.5">Brand Code</th>
                   <th className="p-3.5">Brand Name</th>
                   <th className="p-3.5">Description</th>
@@ -1288,7 +1412,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               <tbody className="divide-y divide-gray-100">
                 {filteredBrands.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-gray-400 font-semibold">
+                    <td colSpan={isEditable ? 8 : 7} className="p-8 text-center text-gray-400 font-semibold">
                       No brands found. Click "Add Brand" to create one.
                     </td>
                   </tr>
@@ -1299,9 +1423,11 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                     );
                     return (
                       <tr key={b.id} className="hover:bg-gray-50">
-                        <td className="p-3.5 font-mono font-bold text-emerald-800 flex items-center gap-2">
-                          <Award className="w-3.5 h-3.5 text-emerald-600" />
-                          {b.code}
+                        <td className="p-3.5 font-mono font-bold text-emerald-800">
+                          <div className="flex items-center gap-2">
+                            <Award className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>{b.code}</span>
+                          </div>
                         </td>
                         <td className="p-3.5 font-bold text-gray-900">{b.name}</td>
                         <td className="p-3.5 text-gray-600">{b.description || '—'}</td>
@@ -1353,15 +1479,15 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
 
       {/* SEGMENT 4: Item Definition Tab Content */}
       {activeTab === 'items' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 font-bold text-gray-700 uppercase text-[10px]">
-                  <th className="p-3.5">Code / Barcode</th>
+        <div className="flex-1 min-h-0 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 overflow-auto">
+            <table className="w-full min-w-[1060px] text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
+                <tr className="font-bold text-gray-700 uppercase text-[10px] whitespace-nowrap">
                   <th className="p-3.5">Item Name</th>
+                  <th className="p-3.5">Item Code</th>
+                  <th className="p-3.5">Barcode</th>
                   <th className="p-3.5">National Language Item Name</th>
-                  <th className="p-3.5">Group / Category / Brand</th>
                   <th className="p-3.5">UOM</th>
                   <th className="p-3.5 text-right">Purchase / Avg Rate</th>
                   <th className="p-3.5 text-right">Sale Rate</th>
@@ -1374,96 +1500,90 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
               <tbody className="divide-y divide-gray-100">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-gray-400 font-semibold">
-                      No item definitions found. Click "Add Item Definition" to create one.
+                    <td colSpan={isEditable ? 11 : 10} className="p-8 text-center text-gray-400 font-semibold">
+                      No item definitions found matching your search or filter criteria.
                     </td>
                   </tr>
                 ) : (
-                  filteredItems.map((item) => {
-                    const grp = itemGroups.find((g) => g.id === Number(item.item_group_id) || g.group_id === item.item_group_id);
-                    const cat = categories.find((c) => c.id === Number(item.category_id) || c.name === item.category_id);
-                    const brd = brands.find((b) => b.id === Number(item.brand_id) || b.name === item.brand_name);
-
-                    return (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="p-3.5">
-                          <div className="font-bold text-gray-900 font-mono">{item.item_code}</div>
-                          {item.barcode && <div className="text-[10px] text-gray-400 font-mono">{item.barcode}</div>}
-                        </td>
-                        <td className="p-3.5 font-bold text-gray-900 flex items-center gap-2">
+                  filteredItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="p-3.5 font-bold text-gray-900">
+                        <div className="flex items-center gap-2">
                           {item.image_url ? (
-                            <img src={item.image_url} alt="" className="w-7 h-7 object-cover rounded-md border border-gray-200" />
+                            <img src={item.image_url} alt="" className="w-7 h-7 object-cover rounded-md border border-gray-200 shrink-0" />
                           ) : (
                             <Box className="w-5 h-5 text-gray-400 shrink-0" />
                           )}
                           <span>{item.item_name}</span>
-                        </td>
-                        <td className="p-3.5 text-gray-700 font-serif text-sm dir-rtl">{item.national_language_item_name || item.item_name_urdu || '—'}</td>
-                        <td className="p-3.5 text-gray-600">
-                          <div className="font-bold text-emerald-800">{grp ? grp.group_id : item.item_group_id || '—'}</div>
-                          <div className="text-[10px] text-gray-400">{cat ? cat.name : item.category_id || '—'}</div>
-                          {brd && (
-                            <div className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/60">
-                              <Award className="w-2.5 h-2.5" />
-                              {brd.name}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3.5 font-semibold text-gray-700">{item.unit_of_measure}</td>
-                        <td className="p-3.5 text-right font-bold text-gray-800">
-                          <div>{formatCurrency(item.purchase_rate, settings.currency_symbol)}</div>
-                          {item.weighted_average_rate !== undefined && (
-                            <div className="text-[10px] text-blue-600 font-mono font-medium" title="Weighted Average Rate">
-                              Avg: {formatCurrency(item.weighted_average_rate, settings.currency_symbol)}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3.5 text-right font-black text-emerald-700">
-                          {formatCurrency(item.sale_rate, settings.currency_symbol)}
-                        </td>
-                        <td className="p-3.5 text-right font-bold text-indigo-600">{item.margin_percent}%</td>
-                        <td className="p-3.5">
-                          <div className="text-xs font-semibold text-slate-700">
-                            <span className="text-[10px] text-slate-400">Min:</span> {item.reorder_level || 0}
+                        </div>
+                      </td>
+                      <td className="p-3.5 font-bold text-gray-900 font-mono whitespace-nowrap">
+                        {item.item_code || '—'}
+                      </td>
+                      <td className="p-3.5 text-gray-600 font-mono whitespace-nowrap">
+                        {item.barcode || '—'}
+                      </td>
+                      <td className="p-3.5 text-gray-700 font-serif text-sm dir-rtl">
+                        {item.national_language_item_name || item.item_name_urdu || '—'}
+                      </td>
+                      <td className="p-3.5 font-semibold text-gray-700 whitespace-nowrap">
+                        {item.unit_of_measure}
+                      </td>
+                      <td className="p-3.5 text-right font-bold text-gray-800 whitespace-nowrap">
+                        <div>{formatCurrency(item.purchase_rate, settings.currency_symbol)}</div>
+                        {item.weighted_average_rate !== undefined && (
+                          <div className="text-[10px] text-blue-600 font-mono font-medium" title="Weighted Average Rate">
+                            Avg: {formatCurrency(item.weighted_average_rate, settings.currency_symbol)}
                           </div>
-                          <div className="text-[10px] text-emerald-700 font-medium">
-                            <span className="text-slate-400">Qty:</span> {item.reorder_qty || 0}
-                          </div>
-                        </td>
-                        <td className="p-3.5">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              item.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {item.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        {isEditable && (
-                          <td className="p-3.5 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => handleOpenItemModal(item)}
-                                className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-gray-100 rounded-lg"
-                                title="Edit item definition"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              {isAdmin && (
-                                <button
-                                  onClick={() => handleDeleteItem(item.id)}
-                                  className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                  title="Delete item definition (Admin only)"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
                         )}
-                      </tr>
-                    );
-                  })
+                      </td>
+                      <td className="p-3.5 text-right font-black text-emerald-700 whitespace-nowrap">
+                        {formatCurrency(item.sale_rate, settings.currency_symbol)}
+                      </td>
+                      <td className="p-3.5 text-right font-bold text-indigo-600 whitespace-nowrap">
+                        {item.margin_percent}%
+                      </td>
+                      <td className="p-3.5 whitespace-nowrap">
+                        <div className="text-xs font-semibold text-slate-700">
+                          <span className="text-[10px] text-slate-400">Min:</span> {item.reorder_level || 0}
+                        </div>
+                        <div className="text-[10px] text-emerald-700 font-medium">
+                          <span className="text-slate-400">Qty:</span> {item.reorder_qty || 0}
+                        </div>
+                      </td>
+                      <td className="p-3.5 whitespace-nowrap">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            item.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {item.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      {isEditable && (
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handleOpenItemModal(item)}
+                              className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-gray-100 rounded-lg"
+                              title="Edit item definition"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleDeleteItem(item.id)}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Delete item definition (Admin only)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

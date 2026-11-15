@@ -150,6 +150,7 @@ export function App() {
 
   const activeChain = getActiveStoreChain();
   const orgAccess = getOrganizationAccessState(activeChain);
+  const isFixedListViewport = activeTab === 'categories' || activeTab === 'inventory';
 
   const renderContent = () => {
     if (!isUserSuperAdmin(currentUser) && orgAccess.blocked) {
@@ -255,7 +256,7 @@ export function App() {
       />
 
       {/* Right Workspace Column: Unified Z-POS Dark Header across all screens */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-slate-100">
         <Navbar
           currentUser={currentUser}
           onOpenSearch={() => setIsSearchOpen(true)}
@@ -264,7 +265,7 @@ export function App() {
         />
 
         {/* Main Working View Area wrapped in resilient error boundary */}
-        <main className="flex-1 overflow-y-auto min-w-0">
+        <main className={`flex-1 min-w-0 min-h-0 ${isFixedListViewport ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           <ContentErrorBoundary fallbackTab={() => setActiveTab('zpos')}>
             {renderContent()}
           </ContentErrorBoundary>
