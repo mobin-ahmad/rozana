@@ -159,7 +159,7 @@ export interface ItemDefinition {
   sale_discount_percent: number;
   sale_rate: number;
   margin_percent: number;
-  packing: number;
+  packing: string;
   bulk_rate: number;
   ctn_rate: number;
   ws_rate: number;

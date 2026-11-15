@@ -46,7 +46,7 @@ export interface ValidatedItemDefinitionInput {
   sale_discount_percent: number;
   sale_rate: number;
   margin_percent: number;
-  packing: number;
+  packing: string;
   bulk_rate: number;
   ctn_rate: number;
   ws_rate: number;
@@ -435,11 +435,11 @@ export function validateItemDefinitionsBulk(
       min: -999999999,
       max: 999999999,
     });
-    const packing = parseNumericField(
-      getField(lookup, ['Packing', 'Pack Size', 'packing']),
-      'Packing',
-      { defaultValue: 1, min: 1, max: 2147483647, integer: true }
-    );
+    const packingText = cellStr(getField(lookup, ['Packing', 'Packaging', 'Pack Size', 'packing'])).toUpperCase();
+    if (packingText.length > 128) {
+      errors.push(`"Packing" exceeds 128 characters (${packingText.length})`);
+      issueBuckets.add('Field Length Exceeded');
+    }
     const bulkRate = parseNumericField(getField(lookup, ['Bulk Rate', 'bulk_rate']), 'Bulk Rate', {
       defaultValue: 0,
       min: 0,
@@ -477,7 +477,6 @@ export function validateItemDefinitionsBulk(
       saleDiscount,
       saleRate,
       marginPercent,
-      packing,
       bulkRate,
       ctnRate,
       wsRate,
@@ -592,7 +591,7 @@ export function validateItemDefinitionsBulk(
         sale_discount_percent: saleDiscount.value,
         sale_rate: saleRate.value,
         margin_percent: marginPercent.value,
-        packing: packing.value,
+        packing: packingText,
         bulk_rate: bulkRate.value,
         ctn_rate: ctnRate.value,
         ws_rate: wsRate.value,

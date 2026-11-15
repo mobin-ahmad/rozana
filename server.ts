@@ -376,6 +376,17 @@ async function ensureMultiTenantSchema(client: pkg.PoolClient): Promise<void> {
       ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS brand_name VARCHAR(255);
       ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS item_name_urdu VARCHAR(255);
       ALTER TABLE "ITEM_DEFINITIONS" ALTER COLUMN margin_percent TYPE NUMERIC(12, 2);
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'ITEM_DEFINITIONS' AND column_name = 'packing' AND data_type <> 'character varying'
+        ) THEN
+          ALTER TABLE "ITEM_DEFINITIONS" ALTER COLUMN packing DROP DEFAULT;
+          ALTER TABLE "ITEM_DEFINITIONS" ALTER COLUMN packing TYPE VARCHAR(128) USING COALESCE(packing::text, '');
+          ALTER TABLE "ITEM_DEFINITIONS" ALTER COLUMN packing SET DEFAULT '';
+        END IF;
+      END $$;
       ALTER TABLE "CUSTOMERS" ADD COLUMN IF NOT EXISTS custom_scan_behavior VARCHAR(64);
       ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
       ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS sub_category_id INT;

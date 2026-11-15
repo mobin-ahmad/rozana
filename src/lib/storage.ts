@@ -2300,7 +2300,7 @@ export function saveItemDefinition(item: Partial<ItemDefinition> & { item_code: 
   if (item.id) {
     const idx = items.findIndex((i) => i.id === item.id);
     if (idx === -1) return { success: false, message: 'Item Definition not found' };
-    items[idx] = { ...items[idx], ...item };
+    items[idx] = { ...items[idx], ...item, packing: item.packing !== undefined ? String(item.packing).trim() : String(items[idx].packing ?? '') };
     setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, items);
     pgSync(TABLE_NAMES.ITEM_DEFINITIONS, getActiveChainId(), items[idx]);
     logActivity('UPDATE', 'Item_Definitions', item.id, `Updated item ${item.item_name}`);
@@ -2333,7 +2333,7 @@ export function saveItemDefinition(item: Partial<ItemDefinition> & { item_code: 
       sale_discount_percent: Number(item.sale_discount_percent || 0),
       sale_rate: Number(item.sale_rate || 0),
       margin_percent: Number(item.margin_percent || 0),
-      packing: Number(item.packing || 1),
+      packing: String(item.packing ?? '').trim(),
       bulk_rate: Number(item.bulk_rate || 0),
       ctn_rate: Number(item.ctn_rate || 0),
       ws_rate: Number(item.ws_rate || 0),
@@ -2584,7 +2584,7 @@ export async function commitValidatedItemDefinitions(validRows: ValidatedItemDef
       sale_discount_percent: r.sale_discount_percent,
       sale_rate: r.sale_rate,
       margin_percent: r.margin_percent,
-      packing: r.packing || 1,
+      packing: String(r.packing ?? '').trim(),
       bulk_rate: r.bulk_rate,
       ctn_rate: r.ctn_rate,
       ws_rate: r.ws_rate,
@@ -2652,7 +2652,7 @@ export function bulkImportItemDefinitions(rows: any[]): { success: boolean; mess
     sale_discount_percent: r.sale_discount_percent,
     sale_rate: r.sale_rate,
     margin_percent: r.margin_percent,
-    packing: r.packing || 1,
+    packing: String(r.packing ?? '').trim(),
     bulk_rate: r.bulk_rate,
     ctn_rate: r.ctn_rate,
     ws_rate: r.ws_rate,
@@ -4401,7 +4401,7 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           sale_discount_percent: num(r.sale_discount_percent),
           sale_rate: num(r.sale_rate),
           margin_percent: num(r.margin_percent),
-          packing: num(r.packing, 1),
+          packing: r.packing !== null && r.packing !== undefined ? String(r.packing) : '',
           bulk_rate: num(r.bulk_rate),
           ctn_rate: num(r.ctn_rate),
           ws_rate: num(r.ws_rate),

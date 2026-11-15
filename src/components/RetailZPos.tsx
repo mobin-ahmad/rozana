@@ -259,6 +259,13 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
     }
   }, [heldOrders]);
 
+  const parsePackingMultiplier = (raw?: string | number): number => {
+    if (typeof raw === 'number') return raw > 0 ? raw : 1;
+    const match = String(raw || '').match(/\d+/);
+    const parsed = match ? parseInt(match[0], 10) : 1;
+    return parsed > 0 ? parsed : 1;
+  };
+
   // Handle Packing / Carton calculation
   const handleCtnChange = (ctnVal: number) => {
     setTopCtnQty(ctnVal);
@@ -297,7 +304,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
           serial_no: `SN-${Math.floor(1000 + Math.random() * 9000)}`,
           sku: skuToUse,
           description: `${item.item_name} ${item.unit_of_measure ? `(${item.unit_of_measure})` : ''}`,
-          packing: item.packing || 1,
+          packing: parsePackingMultiplier(item.packing),
           ctn_qty: 0,
           quantity: 1,
           unit_price: unitPrice,
@@ -314,7 +321,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
     setMatchedItemDef(item);
     setTopSku(item.barcode || item.item_code);
     setTopDescription(`${item.item_name} ${item.unit_of_measure ? `(${item.unit_of_measure})` : ''}`);
-    setTopPacking(item.packing || 1);
+    setTopPacking(parsePackingMultiplier(item.packing));
     setTopCtnQty(0);
     setTopQuantity(1);
     setTopUnitPrice(item.sale_rate || 0);
@@ -419,7 +426,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
                 serial_no: `SN-${Math.floor(1000 + Math.random() * 9000)}`,
                 sku: skuToUse,
                 description: `${matchedDef.item_name} ${matchedDef.unit_of_measure ? `(${matchedDef.unit_of_measure})` : ''}`,
-                packing: matchedDef.packing || 1,
+                packing: parsePackingMultiplier(matchedDef.packing),
                 ctn_qty: 0,
                 quantity: 1,
                 unit_price: unitPrice,

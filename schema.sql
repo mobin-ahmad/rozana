@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS "ITEM_DEFINITIONS" (
     sale_discount_percent NUMERIC(5, 2) DEFAULT 0.00,
     sale_rate NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
     margin_percent NUMERIC(12, 2) DEFAULT 0.00,
-    packing INT DEFAULT 1,
+    packing VARCHAR(128) DEFAULT '',
     bulk_rate NUMERIC(14, 2) DEFAULT 0.00,
     ctn_rate NUMERIC(14, 2) DEFAULT 0.00,
     ws_rate NUMERIC(14, 2) DEFAULT 0.00,

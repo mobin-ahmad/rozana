@@ -151,7 +151,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const [saleDiscount, setSaleDiscount] = useState<number>(0);
   const [saleRate, setSaleRate] = useState<number>(0);
   const [marginPercent, setMarginPercent] = useState<number>(0);
-  const [packing, setPacking] = useState<number>(1);
+  const [packing, setPacking] = useState<string>('');
   const [bulkRate, setBulkRate] = useState<number>(0);
   const [ctnRate, setCtnRate] = useState<number>(0);
   const [wsRate, setWsRate] = useState<number>(0);
@@ -441,7 +441,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
       setSaleDiscount(item.sale_discount_percent || 0);
       setSaleRate(item.sale_rate || 0);
       setMarginPercent(item.margin_percent || 0);
-      setPacking(item.packing || 1);
+      setPacking(item.packing !== undefined && item.packing !== null ? String(item.packing) : '');
       setBulkRate(item.bulk_rate || 0);
       setCtnRate(item.ctn_rate || 0);
       setWsRate(item.ws_rate || 0);
@@ -468,7 +468,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
       setSaleDiscount(0);
       setSaleRate(0);
       setMarginPercent(0);
-      setPacking(1);
+      setPacking('');
       setBulkRate(0);
       setCtnRate(0);
       setWsRate(0);
@@ -642,7 +642,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
           'Sale Discount (%)': 2,
           'Sale Rate': 3000,
           'Margin (%)': 20,
-          'Packing': 1,
+          'Packing': '12 PCS / BOX',
           'Bulk Rate': 2850,
           'Ctn.Rate': 2900,
           'W.S.Rate': 2800,
@@ -723,7 +723,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
           'Sale Discount (%)': item.sale_discount_percent,
           'Sale Rate': item.sale_rate,
           'Margin (%)': item.margin_percent,
-          'Packing': item.packing,
+          'Packing': item.packing ?? '',
           'Bulk Rate': item.bulk_rate,
           'Ctn.Rate': item.ctn_rate,
           'W.S.Rate': item.ws_rate,
@@ -1871,10 +1871,11 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                     <div className="flex items-center justify-between gap-2">
                       <label className="font-bold text-slate-700 text-xs w-32">Packing</label>
                       <input
-                        type="number"
+                        type="text"
                         value={packing}
-                        onChange={(e) => setPacking(Number(e.target.value))}
-                        className="w-full max-w-[200px] p-1.5 bg-white border border-slate-300 rounded outline-none focus:border-blue-500 text-xs font-mono text-right"
+                        onChange={(e) => setPacking(e.target.value)}
+                        placeholder="e.g. 1X12 / BOX / CTN"
+                        className="w-full max-w-[200px] p-1.5 bg-white border border-slate-300 rounded outline-none focus:border-blue-500 text-xs uppercase"
                       />
                     </div>
 
