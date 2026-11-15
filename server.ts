@@ -375,6 +375,7 @@ async function ensureMultiTenantSchema(client: pkg.PoolClient): Promise<void> {
       ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS account_status VARCHAR(32) DEFAULT 'active';
       ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS brand_name VARCHAR(255);
       ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS item_name_urdu VARCHAR(255);
+      ALTER TABLE "ITEM_DEFINITIONS" ALTER COLUMN margin_percent TYPE NUMERIC(12, 2);
       ALTER TABLE "CUSTOMERS" ADD COLUMN IF NOT EXISTS custom_scan_behavior VARCHAR(64);
       ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
       ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS sub_category_id INT;
@@ -1241,19 +1242,29 @@ app.post('/api/db/sync-batch', async (req: Request, res: Response) => {
   }
 
   let syncedCount = 0;
-  const errors: Array<{ table: string; error: string }> = [];
+  const errors: Array<{ index: number; table: string; identifier: string; error: string }> = [];
 
   try {
     const client = await connectWithIpv4Fallback();
     try {
       await ensureMultiTenantSchema(client);
-      for (const item of items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
         if (!item || !item.table || !item.record) continue;
         try {
           await syncRecordToDb(client, String(item.table), String(item.chainId || 'chain-default'), item.record);
           syncedCount++;
         } catch (err: unknown) {
-          errors.push({ table: String(item.table), error: (err as Error).message });
+          const rec = item.record as Record<string, unknown>;
+          const identifier = String(
+            rec.item_code || rec.code || rec.group_id || rec.name || rec.username || rec.id || `Row ${i + 1}`
+          );
+          errors.push({
+            index: i,
+            table: String(item.table),
+            identifier,
+            error: (err as Error).message,
+          });
         }
       }
       res.json({
@@ -1261,7 +1272,7 @@ app.post('/api/db/sync-batch', async (req: Request, res: Response) => {
         syncedCount,
         totalRequested: items.length,
         errorCount: errors.length,
-        errors: errors.slice(0, 15),
+        errors: errors.slice(0, 200),
       });
     } finally {
       client.release();

@@ -248,15 +248,23 @@ export const databaseService = {
 
   syncBatch(
     items: SyncBatchItem[]
-  ): Promise<{ success: boolean; syncedCount: number; totalRequested?: number; errorCount?: number; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    syncedCount: number;
+    totalRequested?: number;
+    errorCount?: number;
+    errors?: Array<{ index?: number; table: string; identifier?: string; error: string }>;
+    error?: string;
+  }> {
     if (!items || items.length === 0) {
-      return Promise.resolve({ success: true, syncedCount: 0, totalRequested: 0, errorCount: 0 });
+      return Promise.resolve({ success: true, syncedCount: 0, totalRequested: 0, errorCount: 0, errors: [] });
     }
     return enqueueSync(async () => {
       try {
         const chunkSize = 200;
         let totalSynced = 0;
         let totalErrors = 0;
+        const allErrors: Array<{ index?: number; table: string; identifier?: string; error: string }> = [];
 
         for (let i = 0; i < items.length; i += chunkSize) {
           const chunk = items.slice(i, i + chunkSize);
@@ -272,11 +280,20 @@ export const databaseService = {
               syncedCount: totalSynced,
               totalRequested: items.length,
               errorCount: totalErrors + chunk.length,
+              errors: allErrors,
               error: data.error || `HTTP ${res.status}`,
             };
           }
           totalSynced += Number(data.syncedCount || 0);
           totalErrors += Number(data.errorCount || 0);
+          if (Array.isArray(data.errors)) {
+            for (const errItem of data.errors) {
+              allErrors.push({
+                ...errItem,
+                index: typeof errItem.index === 'number' ? i + errItem.index : undefined,
+              });
+            }
+          }
         }
 
         return {
@@ -284,12 +301,14 @@ export const databaseService = {
           syncedCount: totalSynced,
           totalRequested: items.length,
           errorCount: totalErrors,
+          errors: allErrors,
         };
       } catch (err: unknown) {
         return {
           success: false,
           syncedCount: 0,
           totalRequested: items.length,
+          errors: [],
           error: (err as Error).message,
         };
       }

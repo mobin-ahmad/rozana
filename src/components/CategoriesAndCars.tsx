@@ -19,7 +19,9 @@ import {
   RotateCcw,
   FolderOpen,
   Award,
-  Building2
+  Building2,
+  AlertTriangle,
+  ShieldCheck
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -38,13 +40,21 @@ import {
   saveSupplier,
   saveItemDefinition,
   deleteItemDefinition,
-  bulkImportCategories,
-  bulkImportItemGroups,
-  bulkImportBrands,
-  bulkImportItemDefinitions,
+  commitValidatedCategories,
+  commitValidatedItemGroups,
+  commitValidatedBrands,
+  commitValidatedItemDefinitions,
+  BulkCommitResult,
   getSettings,
   subscribeToStorage
 } from '../lib/storage';
+import {
+  BulkValidationReport,
+  validateBrandsBulk,
+  validateCategoriesBulk,
+  validateItemDefinitionsBulk,
+  validateItemGroupsBulk,
+} from '../lib/bulkValidation';
 import { Category, ItemGroup, Brand, ItemDefinition, UserRole } from '../types';
 import { formatCurrency } from '../lib/cft';
 
@@ -148,10 +158,18 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const [bulkQty, setBulkQty] = useState<number>(0);
   const [itemIsActive, setItemIsActive] = useState(true);
 
-  // Bulk Upload Modal
+  // Bulk Upload & Pre-Validation Modal
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [uploadStep, setUploadStep] = useState<'select' | 'review' | 'done'>('select');
+  const [parseErrorMsg, setParseErrorMsg] = useState<string | null>(null);
+  const [validationReport, setValidationReport] = useState<BulkValidationReport<any> | null>(null);
+  const [errorSearchQuery, setErrorSearchQuery] = useState('');
+  const [errorCategoryFilter, setErrorCategoryFilter] = useState<string>('ALL');
+  const [errorPage, setErrorPage] = useState(1);
+  const [commitResult, setCommitResult] = useState<BulkCommitResult | null>(null);
+  const [uploadToastBanner, setUploadToastBanner] = useState<{ type: 'success' | 'info' | 'warning'; text: string } | null>(null);
 
   const availableUoms = Array.from(
     new Set([
@@ -709,52 +727,155 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
     }
   };
 
-  // Option 3: Bulk Upload Process
-  const handleExecuteBulkUpload = () => {
+  // Option 3: Pre-Upload Validation & Decision Process
+  const resetBulkUploadModalState = () => {
+    setSelectedFile(null);
+    setUploadStep('select');
+    setParseErrorMsg(null);
+    setValidationReport(null);
+    setErrorSearchQuery('');
+    setErrorCategoryFilter('ALL');
+    setErrorPage(1);
+    setCommitResult(null);
+  };
+
+  const handleOpenBulkUploadModal = () => {
+    resetBulkUploadModalState();
+    setShowUploadModal(true);
+  };
+
+  const handleValidateBulkFile = () => {
     if (!selectedFile) {
-      alert('Please select an Excel or CSV file to upload.');
+      setParseErrorMsg('Please select an Excel (.xlsx, .xls) or CSV (.csv) file first.');
       return;
     }
 
     setIsProcessing(true);
+    setParseErrorMsg(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const bstr = e.target?.result;
-        const workbook = XLSX.read(bstr, { type: 'binary' });
+        const arrayBuffer = e.target?.result;
+        if (!arrayBuffer) {
+          setParseErrorMsg('Unable to read the selected file.');
+          setIsProcessing(false);
+          return;
+        }
+        const workbook = XLSX.read(new Uint8Array(arrayBuffer as ArrayBuffer), { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          setParseErrorMsg('The uploaded workbook has no sheets.');
+          setIsProcessing(false);
+          return;
+        }
         const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
 
         if (!jsonData || jsonData.length === 0) {
-          alert('The uploaded file contains no data rows.');
+          setParseErrorMsg('The uploaded file contains no data rows.');
           setIsProcessing(false);
           return;
         }
 
-        let res = { success: false, message: '', count: 0 };
+        let report: BulkValidationReport<any>;
         if (activeTab === 'categories') {
-          res = bulkImportCategories(jsonData);
+          report = validateCategoriesBulk(jsonData, selectedFile.name, {
+            existingCategories: categories,
+            itemGroups,
+          });
         } else if (activeTab === 'groups') {
-          res = bulkImportItemGroups(jsonData);
+          report = validateItemGroupsBulk(jsonData, selectedFile.name, {
+            existingGroups: itemGroups,
+          });
         } else if (activeTab === 'brands') {
-          res = bulkImportBrands(jsonData);
-        } else if (activeTab === 'items') {
-          res = bulkImportItemDefinitions(jsonData);
+          report = validateBrandsBulk(jsonData, selectedFile.name, {
+            existingBrands: brands,
+          });
+        } else {
+          report = validateItemDefinitionsBulk(jsonData, selectedFile.name, {
+            existingItems: itemDefinitions,
+            itemGroups,
+            categories,
+            brands,
+          });
         }
 
-        alert(res.message);
-        if (res.success) {
-          setShowUploadModal(false);
-          setSelectedFile(null);
-        }
-      } catch (err: any) {
-        alert('Failed to parse spreadsheet file: ' + err.message);
+        setValidationReport(report);
+        setErrorSearchQuery('');
+        setErrorCategoryFilter('ALL');
+        setErrorPage(1);
+        setUploadStep('review');
+      } catch (err: unknown) {
+        setParseErrorMsg('Failed to parse spreadsheet file: ' + ((err as Error)?.message || 'Unknown error'));
       } finally {
         setIsProcessing(false);
       }
     };
-    reader.readAsBinaryString(selectedFile);
+    reader.onerror = () => {
+      setParseErrorMsg('Failed to read the selected file from disk.');
+      setIsProcessing(false);
+    };
+    reader.readAsArrayBuffer(selectedFile);
+  };
+
+  const handleProceedWithValidRecords = async () => {
+    if (!validationReport || validationReport.validRecords.length === 0) return;
+    setIsProcessing(true);
+    try {
+      let res: BulkCommitResult;
+      if (validationReport.segment === 'categories') {
+        res = await commitValidatedCategories(validationReport.validRecords);
+      } else if (validationReport.segment === 'groups') {
+        res = await commitValidatedItemGroups(validationReport.validRecords);
+      } else if (validationReport.segment === 'brands') {
+        res = await commitValidatedBrands(validationReport.validRecords);
+      } else {
+        res = await commitValidatedItemDefinitions(validationReport.validRecords);
+      }
+      setCommitResult(res);
+      setUploadStep('done');
+      setUploadToastBanner({
+        type: res.pgErrorCount > 0 ? 'warning' : 'success',
+        text: res.message,
+      });
+    } catch (err: unknown) {
+      setParseErrorMsg('Upload failed: ' + ((err as Error)?.message || 'Unexpected error'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancelAndCorrectUpload = () => {
+    const hadErrors = (validationReport?.invalidRows.length || 0) > 0;
+    resetBulkUploadModalState();
+    setShowUploadModal(false);
+    if (hadErrors) {
+      setUploadToastBanner({
+        type: 'info',
+        text: 'Bulk upload cancelled. Correct the flagged rows in your spreadsheet and re-upload when ready.',
+      });
+    }
+  };
+
+  const handleDownloadValidationErrorsExcel = () => {
+    if (!validationReport || validationReport.invalidRows.length === 0) return;
+    const rowsForExport = validationReport.invalidRows.map((issue) => ({
+      'Excel Row #': issue.rowNumber,
+      'Code / Identifier': issue.identifier,
+      'Name': issue.name || '',
+      'Validation Errors': issue.errors.join(' | '),
+      'Warnings': issue.warnings.join(' | '),
+      ...issue.rawRow,
+    }));
+    const segmentLabel =
+      validationReport.segment === 'categories'
+        ? 'Categories'
+        : validationReport.segment === 'groups'
+        ? 'Item_Groups'
+        : validationReport.segment === 'brands'
+        ? 'Brands'
+        : 'Item_Definitions';
+    exportToExcelFile(rowsForExport, `${segmentLabel}_Validation_Errors`, 'Errors');
   };
 
   // Filtered lists
@@ -863,6 +984,35 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         </div>
       </div>
 
+      {/* Upload Status Banner */}
+      {uploadToastBanner && (
+        <div
+          className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-xs font-semibold ${
+            uploadToastBanner.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : uploadToastBanner.type === 'warning'
+              ? 'bg-amber-50 border-amber-200 text-amber-800'
+              : 'bg-indigo-50 border-indigo-200 text-indigo-800'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {uploadToastBanner.type === 'success' ? (
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+            )}
+            <span>{uploadToastBanner.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUploadToastBanner(null)}
+            className="text-current/70 hover:text-current cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Segment Action Bar: Export Template, Bulk Upload, Export Excel & Add Button */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
         {/* Search Field */}
@@ -900,11 +1050,8 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
           {/* Option 2: Bulk Upload Option */}
           {isEditable && (
             <button
-              onClick={() => {
-                setSelectedFile(null);
-                setShowUploadModal(true);
-              }}
-              title="Upload Excel spreadsheet to bulk import records"
+              onClick={handleOpenBulkUploadModal}
+              title="Validate and upload Excel spreadsheet to bulk import records"
               className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 border border-indigo-200"
             >
               <Upload className="w-3.5 h-3.5 text-indigo-600" />
@@ -1803,120 +1950,550 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         </div>
       )}
 
-      {/* Bulk Upload Modal for Active Segment */}
-      {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <h3 className="font-black text-base text-gray-900 flex items-center gap-2">
-                <Upload className="w-5 h-5 text-indigo-600" />
-                Bulk Upload:{' '}
-                {activeTab === 'categories'
-                  ? 'Categories'
-                  : activeTab === 'groups'
-                  ? 'Item Groups'
-                  : activeTab === 'brands'
-                  ? 'Brands'
-                  : 'Item Definitions'}
-              </h3>
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* Bulk Upload & Validation Modal for Active Segment */}
+      {showUploadModal && (() => {
+        const segmentLabel =
+          activeTab === 'categories'
+            ? 'Categories'
+            : activeTab === 'groups'
+            ? 'Item Groups'
+            : activeTab === 'brands'
+            ? 'Brands'
+            : 'Item Definitions';
 
-            <div className="space-y-3 text-xs text-gray-600">
-              <p>
-                Upload an Excel sheet (<strong>.xlsx</strong>, <strong>.xls</strong>) or <strong>.csv</strong> file containing your{' '}
-                {activeTab === 'categories'
-                  ? 'categories'
-                  : activeTab === 'groups'
-                  ? 'item groups'
-                  : activeTab === 'brands'
-                  ? 'brands'
-                  : 'item definitions'}{' '}
-                data.
-              </p>
+        const allInvalidRows = validationReport?.invalidRows || [];
+        const filteredInvalidRows = allInvalidRows.filter((issue) => {
+          const matchesCat =
+            errorCategoryFilter === 'ALL' ||
+            issue.errors.some((e) => e.toLowerCase().includes(errorCategoryFilter.toLowerCase()));
+          if (!matchesCat) return false;
+          if (!errorSearchQuery.trim()) return true;
+          const q = errorSearchQuery.toLowerCase();
+          return (
+            String(issue.rowNumber).includes(q) ||
+            issue.identifier.toLowerCase().includes(q) ||
+            (issue.name && issue.name.toLowerCase().includes(q)) ||
+            issue.errors.some((e) => e.toLowerCase().includes(q))
+          );
+        });
+        const ERRORS_PER_PAGE = 50;
+        const totalErrorPages = Math.max(1, Math.ceil(filteredInvalidRows.length / ERRORS_PER_PAGE));
+        const safeErrorPage = Math.min(errorPage, totalErrorPages);
+        const pagedInvalidRows = filteredInvalidRows.slice(
+          (safeErrorPage - 1) * ERRORS_PER_PAGE,
+          safeErrorPage * ERRORS_PER_PAGE
+        );
 
-              <div className="bg-indigo-50/60 p-3 rounded-xl border border-indigo-100 text-indigo-900 space-y-1">
-                <p className="font-bold">Required Header Columns:</p>
-                {activeTab === 'categories' && (
-                  <p className="font-mono text-[11px] text-indigo-700">
-                    Category Name, Description, Is Active
-                  </p>
-                )}
-                {activeTab === 'groups' && (
-                  <p className="font-mono text-[11px] text-indigo-700">
-                    Group ID, Group Description, Is Active
-                  </p>
-                )}
-                {activeTab === 'items' && (
-                  <p className="font-mono text-[11px] text-indigo-700">
-                    Item Code, Item Name, Item Group, Category, Barcode, Printed Price, Purchase Rate, Sale Rate
-                  </p>
-                )}
-              </div>
-
-              <div className="border-2 border-dashed border-gray-200 hover:border-indigo-400 rounded-2xl p-6 text-center cursor-pointer bg-gray-50/50 hover:bg-indigo-50/20 transition-all">
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                  className="hidden"
-                  id="excel-file-upload"
-                />
-                <label htmlFor="excel-file-upload" className="cursor-pointer space-y-2 block">
-                  <FileSpreadsheet className="w-8 h-8 text-indigo-500 mx-auto" />
-                  {selectedFile ? (
-                    <div className="space-y-1">
-                      <p className="font-bold text-gray-900">{selectedFile.name}</p>
-                      <p className="text-[11px] text-gray-400">
-                        {(selectedFile.size / 1024).toFixed(1)} KB — Click to change file
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="font-bold text-gray-700">Click to browse or drop file here</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">Supports .xlsx, .xls, .csv</p>
-                    </div>
-                  )}
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 overflow-y-auto">
+            <div
+              className={`bg-white rounded-2xl p-6 w-full shadow-2xl space-y-4 my-auto transition-all ${
+                uploadStep === 'review' ? 'max-w-4xl' : 'max-w-lg'
+              }`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    {uploadStep === 'review' ? (
+                      <ShieldCheck className="w-5 h-5" />
+                    ) : (
+                      <Upload className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base text-gray-900">
+                      Bulk Upload & Validation: {segmentLabel}
+                    </h3>
+                    <p className="text-[11px] text-gray-500">
+                      {uploadStep === 'select'
+                        ? 'Step 1 of 2 — Select spreadsheet to validate before uploading'
+                        : uploadStep === 'review'
+                        ? `Step 2 of 2 — Pre-upload validation results for ${validationReport?.fileName || 'file'}`
+                        : 'Upload completed'}
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={handleExportTemplate}
-                  className="text-indigo-600 font-bold hover:underline flex items-center gap-1"
+                  onClick={handleCancelAndCorrectUpload}
+                  className="text-gray-400 hover:text-gray-600 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" /> Download Template Sheet
+                  <X className="w-5 h-5" />
                 </button>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowUploadModal(false)}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExecuteBulkUpload}
-                    disabled={!selectedFile || isProcessing}
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    {isProcessing ? 'Processing...' : 'Upload & Import'}
-                  </button>
-                </div>
               </div>
+
+              {/* STEP 1: FILE SELECTION */}
+              {uploadStep === 'select' && (
+                <div className="space-y-3 text-xs text-gray-600">
+                  <p>
+                    Every bulk upload is validated row-by-row first. If any rows contain missing required fields, duplicates, or invalid numbers, they will be displayed clearly so you can decide whether to upload valid rows or cancel and correct the file.
+                  </p>
+
+                  <div className="bg-indigo-50/60 p-3 rounded-xl border border-indigo-100 text-indigo-900 space-y-1">
+                    <p className="font-bold">Required & Key Columns:</p>
+                    {activeTab === 'categories' && (
+                      <p className="font-mono text-[11px] text-indigo-700">
+                        Category Name (required), Description, Is Active
+                      </p>
+                    )}
+                    {activeTab === 'groups' && (
+                      <p className="font-mono text-[11px] text-indigo-700">
+                        Group ID (required), Group Description, Is Active
+                      </p>
+                    )}
+                    {activeTab === 'brands' && (
+                      <p className="font-mono text-[11px] text-indigo-700">
+                        Brand Name (required), Brand Code, Description, Is Active
+                      </p>
+                    )}
+                    {activeTab === 'items' && (
+                      <p className="font-mono text-[11px] text-indigo-700">
+                        Item Code (required), Item Name (required), Barcode (unique if provided), Item Group, Category, Brand, Printed Price, Purchase Rate, Sale Rate
+                      </p>
+                    )}
+                  </div>
+
+                  {parseErrorMsg && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl flex items-start gap-2 font-semibold">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{parseErrorMsg}</span>
+                    </div>
+                  )}
+
+                  <div className="border-2 border-dashed border-gray-200 hover:border-indigo-400 rounded-2xl p-6 text-center cursor-pointer bg-gray-50/50 hover:bg-indigo-50/20 transition-all">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={(e) => {
+                        setSelectedFile(e.target.files?.[0] || null);
+                        setParseErrorMsg(null);
+                      }}
+                      className="hidden"
+                      id="excel-file-upload"
+                    />
+                    <label htmlFor="excel-file-upload" className="cursor-pointer space-y-2 block">
+                      <FileSpreadsheet className="w-8 h-8 text-indigo-500 mx-auto" />
+                      {selectedFile ? (
+                        <div className="space-y-1">
+                          <p className="font-bold text-gray-900">{selectedFile.name}</p>
+                          <p className="text-[11px] text-gray-400">
+                            {(selectedFile.size / 1024).toFixed(1)} KB — Click to change file
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="font-bold text-gray-700">Click to browse or drop file here</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">Supports .xlsx, .xls, .csv</p>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={handleExportTemplate}
+                      className="text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Download Template Sheet
+                    </button>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCancelAndCorrectUpload}
+                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleValidateBulkFile}
+                        disabled={!selectedFile || isProcessing}
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        {isProcessing ? 'Validating...' : 'Validate File'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2: VALIDATION REPORT & USER DECISION */}
+              {uploadStep === 'review' && validationReport && (
+                <div className="space-y-4 text-xs">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Total Records Scanned
+                      </p>
+                      <p className="text-2xl font-black text-slate-900 mt-1">
+                        {validationReport.totalRowsInFile.toLocaleString()}
+                      </p>
+                      {validationReport.blankRowsSkipped > 0 && (
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          ({validationReport.blankRowsSkipped} empty row(s) ignored)
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                        Valid & Ready to Upload
+                      </p>
+                      <p className="text-2xl font-black text-emerald-700 mt-1">
+                        {validationReport.validRecords.length.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-emerald-600 mt-0.5">
+                        Passed all validation checks
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-3.5 rounded-xl border ${
+                        validationReport.invalidRows.length > 0
+                          ? 'bg-rose-50 border-rose-200'
+                          : 'bg-emerald-50/50 border-emerald-200'
+                      }`}
+                    >
+                      <p
+                        className={`text-[10px] font-bold uppercase tracking-wider ${
+                          validationReport.invalidRows.length > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        Rows With Errors
+                      </p>
+                      <p
+                        className={`text-2xl font-black mt-1 ${
+                          validationReport.invalidRows.length > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        {validationReport.invalidRows.length.toLocaleString()}
+                      </p>
+                      <p
+                        className={`text-[10px] mt-0.5 ${
+                          validationReport.invalidRows.length > 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}
+                      >
+                        {validationReport.invalidRows.length > 0
+                          ? 'Cannot be imported until fixed'
+                          : 'No errors detected'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Missing Header Fatal Error */}
+                  {validationReport.missingHeaderError && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-start gap-2.5">
+                      <XCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">Invalid Spreadsheet Structure</p>
+                        <p className="text-[11px] mt-0.5">{validationReport.missingHeaderError}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error Breakdown + Detailed Error Rows Table */}
+                  {validationReport.invalidRows.length > 0 ? (
+                    <div className="space-y-3">
+                      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-bold">
+                              Validation found {validationReport.invalidRows.length} invalid record(s). Nothing has been uploaded yet.
+                            </p>
+                            <p className="text-[11px] text-amber-800 mt-0.5">
+                              {validationReport.validRecords.length > 0
+                                ? `You can either proceed uploading the ${validationReport.validRecords.length.toLocaleString()} valid record(s) (skipping the invalid ones), or cancel the upload, correct the errors in your file, and re-upload.`
+                                : 'No valid records remain. Cancel the upload, fix the errors listed below in your spreadsheet, and re-upload.'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleDownloadValidationErrorsExcel}
+                          className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-900 font-bold text-[11px] rounded-lg border border-amber-300 shrink-0 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download Error Report
+                        </button>
+                      </div>
+
+                      {/* Error Bucket Filter Chips */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setErrorCategoryFilter('ALL');
+                            setErrorPage(1);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition ${
+                            errorCategoryFilter === 'ALL'
+                              ? 'bg-slate-900 text-white border-slate-900'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          All Errors ({validationReport.invalidRows.length})
+                        </button>
+                        {Object.entries(validationReport.errorSummaryCounts).map(([bucket, cnt]) => {
+                          const keyword = bucket.split('(')[0].trim();
+                          const active = errorCategoryFilter === keyword;
+                          return (
+                            <button
+                              key={bucket}
+                              type="button"
+                              onClick={() => {
+                                setErrorCategoryFilter(active ? 'ALL' : keyword);
+                                setErrorPage(1);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition ${
+                                active
+                                  ? 'bg-rose-600 text-white border-rose-600'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                              }`}
+                            >
+                              {bucket}: {cnt}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Search within error rows */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="relative flex-1 max-w-sm">
+                          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={errorSearchQuery}
+                            onChange={(e) => {
+                              setErrorSearchQuery(e.target.value);
+                              setErrorPage(1);
+                            }}
+                            placeholder="Filter errors by Row #, Code, Name, or reason..."
+                            className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <span className="text-[11px] text-gray-500 font-semibold">
+                          Showing {pagedInvalidRows.length} of {filteredInvalidRows.length} error row(s)
+                        </span>
+                      </div>
+
+                      {/* Scrollable Error Details Table */}
+                      <div className="border border-rose-200 rounded-xl overflow-hidden">
+                        <div className="max-h-64 overflow-y-auto">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead className="bg-rose-50 text-rose-900 sticky top-0 z-10 border-b border-rose-200">
+                              <tr>
+                                <th className="py-2 px-3 font-bold w-24">Excel Row</th>
+                                <th className="py-2 px-3 font-bold w-40">Code / Identifier</th>
+                                <th className="py-2 px-3 font-bold w-48">Name</th>
+                                <th className="py-2 px-3 font-bold">Validation Error(s)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-rose-100 bg-white">
+                              {pagedInvalidRows.map((issue, idx) => (
+                                <tr key={`${issue.rowNumber}-${idx}`} className="hover:bg-rose-50/40 align-top">
+                                  <td className="py-2 px-3 font-mono font-bold text-rose-700">
+                                    Row {issue.rowNumber}
+                                  </td>
+                                  <td className="py-2 px-3 font-mono font-semibold text-slate-800 break-all">
+                                    {issue.identifier}
+                                  </td>
+                                  <td className="py-2 px-3 text-slate-700 break-words">
+                                    {issue.name || <span className="text-slate-400 italic">—</span>}
+                                  </td>
+                                  <td className="py-2 px-3 text-rose-700 space-y-0.5">
+                                    {issue.errors.map((errText, errIdx) => (
+                                      <div key={errIdx} className="flex items-start gap-1.5">
+                                        <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                                        <span>{errText}</span>
+                                      </div>
+                                    ))}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {totalErrorPages > 1 && (
+                          <div className="bg-rose-50/60 px-3 py-2 border-t border-rose-200 flex items-center justify-between text-[11px] text-rose-900 font-semibold">
+                            <span>
+                              Page {safeErrorPage} of {totalErrorPages}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={safeErrorPage <= 1}
+                                onClick={() => setErrorPage((p) => Math.max(1, p - 1))}
+                                className="px-2.5 py-1 bg-white border border-rose-200 rounded-md disabled:opacity-40 cursor-pointer"
+                              >
+                                Previous
+                              </button>
+                              <button
+                                type="button"
+                                disabled={safeErrorPage >= totalErrorPages}
+                                onClick={() => setErrorPage((p) => Math.min(totalErrorPages, p + 1))}
+                                className="px-2.5 py-1 bg-white border border-rose-200 rounded-md disabled:opacity-40 cursor-pointer"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-4 rounded-xl flex items-start gap-2.5">
+                      <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">
+                          All {validationReport.validRecords.length.toLocaleString()} record(s) passed validation!
+                        </p>
+                        <p className="text-[11px] text-emerald-700 mt-0.5">
+                          No missing fields, duplicates, or invalid numeric values were found. Click confirm below to upload to your catalog and database.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Non-blocking Warnings Notice */}
+                  {validationReport.warningRows.length > 0 && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-700">
+                      <p className="font-bold text-slate-800">
+                        Optional Reference Notes ({validationReport.warningRows.length} valid row(s)):
+                      </p>
+                      <p className="text-slate-600 mt-0.5">
+                        Example (Row {validationReport.warningRows[0].rowNumber}): {validationReport.warningRows[0].warnings[0]}
+                      </p>
+                    </div>
+                  )}
+
+                  {parseErrorMsg && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl flex items-start gap-2 font-semibold">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{parseErrorMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Action Footer Asking User to Proceed or Cancel */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-3 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadStep('select');
+                        setValidationReport(null);
+                      }}
+                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl cursor-pointer text-center"
+                    >
+                      Choose Different File
+                    </button>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCancelAndCorrectUpload}
+                        className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl cursor-pointer"
+                      >
+                        Cancel Upload & Correct Data
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleProceedWithValidRecords}
+                        disabled={validationReport.validRecords.length === 0 || isProcessing}
+                        className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Upload className="w-4 h-4" />
+                        {isProcessing
+                          ? 'Uploading...'
+                          : validationReport.invalidRows.length > 0
+                          ? `Proceed Uploading ${validationReport.validRecords.length.toLocaleString()} Correct Record(s)`
+                          : `Confirm & Upload ${validationReport.validRecords.length.toLocaleString()} Record(s)`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: UPLOAD RESULT SUMMARY */}
+              {uploadStep === 'done' && commitResult && (
+                <div className="space-y-4 text-xs">
+                  <div
+                    className={`p-4 rounded-xl border flex items-start gap-3 ${
+                      commitResult.pgErrorCount > 0
+                        ? 'bg-amber-50 border-amber-200 text-amber-900'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    }`}
+                  >
+                    {commitResult.pgErrorCount > 0 ? (
+                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <p className="font-bold text-sm">{commitResult.message}</p>
+                      <p className="text-[11px] mt-1">
+                        Imported records: <strong>{commitResult.count.toLocaleString()}</strong>
+                        {commitResult.pgConnected && (
+                          <>
+                            {' '}• PostgreSQL synced: <strong>{commitResult.pgSyncedCount.toLocaleString()}</strong>
+                            {commitResult.pgErrorCount > 0 && (
+                              <> • DB rejections: <strong className="text-rose-700">{commitResult.pgErrorCount}</strong></>
+                            )}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {commitResult.pgErrors && commitResult.pgErrors.length > 0 && (
+                    <div className="border border-rose-200 rounded-xl overflow-hidden">
+                      <div className="bg-rose-50 px-3 py-2 font-bold text-rose-900 border-b border-rose-200">
+                        PostgreSQL Database Rejection Details ({commitResult.pgErrors.length})
+                      </div>
+                      <div className="max-h-48 overflow-y-auto divide-y divide-rose-100 bg-white">
+                        {commitResult.pgErrors.map((pgErr, i) => (
+                          <div key={i} className="px-3 py-2 text-[11px] text-rose-700 flex items-start gap-2">
+                            <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>{pgErr.identifier || pgErr.table}:</strong> {pgErr.error}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetBulkUploadModalState();
+                      }}
+                      className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl cursor-pointer"
+                    >
+                      Upload Another File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetBulkUploadModalState();
+                        setShowUploadModal(false);
+                      }}
+                      className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Quick-Create / Registration Modals rendered after Item Definition Modal with z-[60] so they always appear in front of all active screens */}
       {/* Category Create/Edit Modal */}

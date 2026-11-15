@@ -33,6 +33,16 @@ import { defaultCurrencies } from './currency';
 import { formatCurrency } from './cft';
 import { calcCft } from './cft';
 import { databaseService, SyncBatchItem } from './databaseService';
+import {
+  ValidatedBrandInput,
+  ValidatedCategoryInput,
+  ValidatedItemDefinitionInput,
+  ValidatedItemGroupInput,
+  validateBrandsBulk,
+  validateCategoriesBulk,
+  validateItemDefinitionsBulk,
+  validateItemGroupsBulk,
+} from './bulkValidation';
 
 let suppressPgSync = false;
 
@@ -2318,92 +2328,320 @@ export function deleteItemDefinition(id: number): { success: boolean; message: s
   return { success: true, message: 'Item Definition deleted' };
 }
 
-export function bulkImportItemDefinitions(rows: any[]): { success: boolean; message: string; count: number } {
-  const items = getItemDefinitions();
-  const brands = getBrands();
+export interface BulkCommitResult {
+  success: boolean;
+  message: string;
+  count: number;
+  pgConnected: boolean;
+  pgSyncedCount: number;
+  pgErrorCount: number;
+  pgErrors: Array<{ index?: number; table: string; identifier?: string; error: string }>;
+}
+
+async function syncCommittedBatch(
+  table: string,
+  chainId: string,
+  records: Record<string, unknown>[]
+): Promise<{
+  pgConnected: boolean;
+  pgSyncedCount: number;
+  pgErrorCount: number;
+  pgErrors: Array<{ index?: number; table: string; identifier?: string; error: string }>;
+}> {
+  if (suppressPgSync || records.length === 0) {
+    return { pgConnected: false, pgSyncedCount: 0, pgErrorCount: 0, pgErrors: [] };
+  }
+  const dbStatus = databaseService.getLastStatus();
+  const isConnected = dbStatus.connected ? true : (await databaseService.checkStatus()).connected;
+  if (!isConnected) {
+    return { pgConnected: false, pgSyncedCount: 0, pgErrorCount: 0, pgErrors: [] };
+  }
+  const res = await databaseService.syncBatch(
+    records.map((record) => ({ table, chainId, record }))
+  );
+  return {
+    pgConnected: true,
+    pgSyncedCount: res.syncedCount || 0,
+    pgErrorCount: res.errorCount || 0,
+    pgErrors: res.errors || (res.error ? [{ table, error: res.error }] : []),
+  };
+}
+
+export async function commitValidatedCategories(validRows: ValidatedCategoryInput[]): Promise<BulkCommitResult> {
+  if (!validRows || validRows.length === 0) {
+    return {
+      success: false,
+      message: 'No valid category records to import.',
+      count: 0,
+      pgConnected: false,
+      pgSyncedCount: 0,
+      pgErrorCount: 0,
+      pgErrors: [],
+    };
+  }
+  const cats = getCategories();
   const currentUser = getCurrentUser();
-  const createdItems: ItemDefinition[] = [];
-  let count = 0;
+  let nextId = cats.length ? Math.max(...cats.map((c) => Number(c.id) || 0)) + 1 : 1;
+  const createdCats: Category[] = [];
 
-  for (const r of rows) {
-    const itemCode = String(r['Item Code'] || r['Item_Code'] || r['item_code'] || '').trim();
-    const itemName = String(r['Item Name'] || r['Item_Name'] || r['item_name'] || '').trim();
-    if (!itemCode || !itemName) continue;
-    if (items.some((i) => i.item_code.toLowerCase() === itemCode.toLowerCase())) continue; // Skip duplicate
-
-    const natLangName = String(
-      r['National Language Item Name'] ||
-      r['National Language Name'] ||
-      r['Item Name ( Urdu )'] ||
-      r['Item Name Urdu'] ||
-      r['national_language_item_name'] ||
-      r['item_name_urdu'] ||
-      ''
-    );
-    const pRate = Number(r['Purchase Rate'] || r['purchase_rate'] || 0);
-
-    // Resolve Brand
-    const rawBrand = r['Brand'] || r['Brand Name'] || r['brand'] || r['brand_id'] || '';
-    let brandId: number | string = '';
-    if (rawBrand) {
-      const matchBrand = brands.find(
-        (b) => b.id === Number(rawBrand) || b.code.toLowerCase() === String(rawBrand).toLowerCase() || b.name.toLowerCase() === String(rawBrand).toLowerCase()
-      );
-      if (matchBrand) {
-        brandId = matchBrand.id;
-      } else {
-        brandId = rawBrand;
-      }
-    }
-
-    const newItem: ItemDefinition = {
-      id: items.length ? Math.max(...items.map((i) => i.id)) + 1 : 1,
-      item_group_id: r['Item Group'] || r['Item_Group_ID'] || '',
-      category_id: r['Category'] || r['Category_ID'] || '',
-      brand_id: brandId,
-      item_code: itemCode,
-      barcode: String(r['Barcode'] || r['barcode'] || ''),
-      item_name: itemName,
-      national_language_item_name: natLangName,
-      item_name_urdu: natLangName,
-      unit_of_measure: String(r['Unit of Measure'] || r['unit_of_measure'] || 'PCS'),
-      publisher_vendor: String(r['Supplier/Vendor'] || r['Publisher/Vendor'] || r['publisher_vendor'] || ''),
-      image_url: String(r['Image URL'] || r['image_url'] || ''),
-      reorder_level: Number(r['Reorder Level'] || r['reorder_level'] || 0),
-      reorder_qty: Number(r['Reorder Qty'] || r['reorder_qty'] || 0),
-      printed_price: Number(r['Printed Price'] || r['printed_price'] || 0),
-      purchase_discount_percent: Number(r['Purchase Discount (%)'] || r['purchase_discount_percent'] || 0),
-      purchase_rate: pRate,
-      weighted_average_rate: Number(r['Weighted Average Rate'] || r['Weighted Avg Rate'] || r['weighted_average_rate'] || pRate),
-      sale_discount_percent: Number(r['Sale Discount (%)'] || r['sale_discount_percent'] || 0),
-      sale_rate: Number(r['Sale Rate'] || r['sale_rate'] || 0),
-      margin_percent: Number(r['Margin (%)'] || r['margin_percent'] || 0),
-      packing: Number(r['Packing'] || r['packing'] || 1),
-      bulk_rate: Number(r['Bulk Rate'] || r['bulk_rate'] || 0),
-      ctn_rate: Number(r['Ctn.Rate'] || r['ctn_rate'] || 0),
-      ws_rate: Number(r['W.S.Rate'] || r['ws_rate'] || 0),
-      bulk_qty: Number(r['Bulk Qty'] || r['bulk_qty'] || 0),
-      is_active: true,
-      created_by: currentUser.id,
+  for (const r of validRows) {
+    const newCat: Category = {
+      id: nextId++,
+      item_group_id: r.item_group_id,
+      name: r.name,
+      description: r.description,
+      is_active: r.is_active,
+      created_by: currentUser?.id || 1,
       created_at: new Date().toISOString(),
     };
-    items.unshift(newItem);
-    createdItems.push(newItem);
-    count++;
+    createdCats.push(newCat);
   }
 
-  if (count > 0) {
-    setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, items);
-    const activeChainId = getActiveChainId();
-    if (!suppressPgSync) {
-      void databaseService.syncBatch(
-        createdItems.map((i) => ({ table: TABLE_NAMES.ITEM_DEFINITIONS, chainId: activeChainId, record: i as unknown as Record<string, unknown> }))
-      );
-    }
-    logActivity('BULK_IMPORT', 'Item_Definitions', count, `Bulk imported ${count} item definitions`);
-    return { success: true, message: `Successfully imported ${count} item definitions`, count };
+  const nextCats = [...createdCats.slice().reverse(), ...cats];
+  setStoredItem(STORAGE_KEYS.CATEGORIES, nextCats);
+  const pgRes = await syncCommittedBatch(
+    TABLE_NAMES.CATEGORIES,
+    getActiveChainId(),
+    createdCats as unknown as Record<string, unknown>[]
+  );
+  logActivity('BULK_IMPORT', 'Categories', createdCats.length, `Bulk imported ${createdCats.length} categories`);
+
+  return {
+    success: true,
+    count: createdCats.length,
+    ...pgRes,
+    message: pgRes.pgConnected
+      ? `Imported ${createdCats.length} category record(s) (${pgRes.pgSyncedCount} saved to PostgreSQL${pgRes.pgErrorCount ? `, ${pgRes.pgErrorCount} DB error(s)` : ''}).`
+      : `Imported ${createdCats.length} category record(s) locally.`,
+  };
+}
+
+export async function commitValidatedItemGroups(validRows: ValidatedItemGroupInput[]): Promise<BulkCommitResult> {
+  if (!validRows || validRows.length === 0) {
+    return {
+      success: false,
+      message: 'No valid item group records to import.',
+      count: 0,
+      pgConnected: false,
+      pgSyncedCount: 0,
+      pgErrorCount: 0,
+      pgErrors: [],
+    };
   }
-  return { success: false, message: 'No valid or new item definition rows found in the file', count: 0 };
+  const groups = getItemGroups();
+  const currentUser = getCurrentUser();
+  let nextId = groups.length ? Math.max(...groups.map((g) => Number(g.id) || 0)) + 1 : 1;
+  const createdGroups: ItemGroup[] = [];
+
+  for (const r of validRows) {
+    const newGroup: ItemGroup = {
+      id: nextId++,
+      group_id: r.group_id,
+      group_description: r.group_description,
+      is_active: r.is_active,
+      created_by: currentUser?.id || 1,
+      created_at: new Date().toISOString(),
+    };
+    createdGroups.push(newGroup);
+  }
+
+  const nextGroups = [...createdGroups.slice().reverse(), ...groups];
+  setStoredItem(STORAGE_KEYS.ITEM_GROUPS, nextGroups);
+  const pgRes = await syncCommittedBatch(
+    TABLE_NAMES.ITEM_GROUPS,
+    getActiveChainId(),
+    createdGroups as unknown as Record<string, unknown>[]
+  );
+  logActivity('BULK_IMPORT', 'Item_Groups', createdGroups.length, `Bulk imported ${createdGroups.length} item groups`);
+
+  return {
+    success: true,
+    count: createdGroups.length,
+    ...pgRes,
+    message: pgRes.pgConnected
+      ? `Imported ${createdGroups.length} item group(s) (${pgRes.pgSyncedCount} saved to PostgreSQL${pgRes.pgErrorCount ? `, ${pgRes.pgErrorCount} DB error(s)` : ''}).`
+      : `Imported ${createdGroups.length} item group(s) locally.`,
+  };
+}
+
+export async function commitValidatedBrands(validRows: ValidatedBrandInput[]): Promise<BulkCommitResult> {
+  if (!validRows || validRows.length === 0) {
+    return {
+      success: false,
+      message: 'No valid brand records to import.',
+      count: 0,
+      pgConnected: false,
+      pgSyncedCount: 0,
+      pgErrorCount: 0,
+      pgErrors: [],
+    };
+  }
+  const brands = getBrands();
+  const currentUser = getCurrentUser();
+  let nextId = brands.length ? Math.max(...brands.map((b) => Number(b.id) || 0)) + 1 : 1;
+  const createdBrands: Brand[] = [];
+
+  for (const r of validRows) {
+    const newBrand: Brand = {
+      id: nextId++,
+      code: r.code,
+      name: r.name,
+      description: r.description,
+      is_active: r.is_active,
+      created_by: currentUser?.id || 1,
+      created_at: new Date().toISOString(),
+    };
+    createdBrands.push(newBrand);
+  }
+
+  const nextBrands = [...createdBrands.slice().reverse(), ...brands];
+  setStoredItem(STORAGE_KEYS.BRANDS, nextBrands);
+  const pgRes = await syncCommittedBatch(
+    TABLE_NAMES.BRANDS,
+    getActiveChainId(),
+    createdBrands as unknown as Record<string, unknown>[]
+  );
+  logActivity('BULK_IMPORT', 'Brands', createdBrands.length, `Bulk imported ${createdBrands.length} brands`);
+
+  return {
+    success: true,
+    count: createdBrands.length,
+    ...pgRes,
+    message: pgRes.pgConnected
+      ? `Imported ${createdBrands.length} brand(s) (${pgRes.pgSyncedCount} saved to PostgreSQL${pgRes.pgErrorCount ? `, ${pgRes.pgErrorCount} DB error(s)` : ''}).`
+      : `Imported ${createdBrands.length} brand(s) locally.`,
+  };
+}
+
+export async function commitValidatedItemDefinitions(validRows: ValidatedItemDefinitionInput[]): Promise<BulkCommitResult> {
+  if (!validRows || validRows.length === 0) {
+    return {
+      success: false,
+      message: 'No valid item definition records to import.',
+      count: 0,
+      pgConnected: false,
+      pgSyncedCount: 0,
+      pgErrorCount: 0,
+      pgErrors: [],
+    };
+  }
+  const items = getItemDefinitions();
+  const currentUser = getCurrentUser();
+  let nextId = items.length ? Math.max(...items.map((i) => Number(i.id) || 0)) + 1 : 1;
+  const createdItems: ItemDefinition[] = [];
+
+  for (const r of validRows) {
+    const newItem: ItemDefinition = {
+      id: nextId++,
+      item_group_id: r.item_group_id || '',
+      category_id: r.category_id || '',
+      brand_id: r.brand_id || '',
+      brand_name: r.brand_name || '',
+      item_code: r.item_code,
+      barcode: r.barcode || '',
+      item_name: r.item_name,
+      national_language_item_name: r.national_language_item_name,
+      item_name_urdu: r.item_name_urdu,
+      unit_of_measure: r.unit_of_measure || 'PCS',
+      publisher_vendor: r.publisher_vendor,
+      image_url: r.image_url,
+      reorder_level: r.reorder_level,
+      reorder_qty: r.reorder_qty,
+      printed_price: r.printed_price,
+      purchase_discount_percent: r.purchase_discount_percent,
+      purchase_rate: r.purchase_rate,
+      weighted_average_rate: r.weighted_average_rate,
+      sale_discount_percent: r.sale_discount_percent,
+      sale_rate: r.sale_rate,
+      margin_percent: r.margin_percent,
+      packing: r.packing || 1,
+      bulk_rate: r.bulk_rate,
+      ctn_rate: r.ctn_rate,
+      ws_rate: r.ws_rate,
+      bulk_qty: r.bulk_qty,
+      stock_quantity: r.stock_quantity,
+      is_active: r.is_active,
+      created_by: currentUser?.id || 1,
+      created_at: new Date().toISOString(),
+    };
+    createdItems.push(newItem);
+  }
+
+  const nextItems = [...createdItems.slice().reverse(), ...items];
+  setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, nextItems);
+  const pgRes = await syncCommittedBatch(
+    TABLE_NAMES.ITEM_DEFINITIONS,
+    getActiveChainId(),
+    createdItems as unknown as Record<string, unknown>[]
+  );
+  logActivity('BULK_IMPORT', 'Item_Definitions', createdItems.length, `Bulk imported ${createdItems.length} item definitions`);
+
+  return {
+    success: true,
+    count: createdItems.length,
+    ...pgRes,
+    message: pgRes.pgConnected
+      ? `Imported ${createdItems.length} item definition(s) (${pgRes.pgSyncedCount} saved to PostgreSQL${pgRes.pgErrorCount ? `, ${pgRes.pgErrorCount} DB error(s)` : ''}).`
+      : `Imported ${createdItems.length} item definition(s) locally.`,
+  };
+}
+
+export function bulkImportItemDefinitions(rows: any[]): { success: boolean; message: string; count: number } {
+  const report = validateItemDefinitionsBulk(rows, 'bulk_import', {
+    existingItems: getItemDefinitions(),
+    itemGroups: getItemGroups(),
+    categories: getCategories(),
+    brands: getBrands(),
+  });
+  if (report.validRecords.length === 0) {
+    return { success: false, message: 'No valid or new item definition rows found in the file', count: 0 };
+  }
+  const items = getItemDefinitions();
+  const currentUser = getCurrentUser();
+  let nextId = items.length ? Math.max(...items.map((i) => Number(i.id) || 0)) + 1 : 1;
+  const createdItems: ItemDefinition[] = report.validRecords.map((r) => ({
+    id: nextId++,
+    item_group_id: r.item_group_id || '',
+    category_id: r.category_id || '',
+    brand_id: r.brand_id || '',
+    brand_name: r.brand_name || '',
+    item_code: r.item_code,
+    barcode: r.barcode || '',
+    item_name: r.item_name,
+    national_language_item_name: r.national_language_item_name,
+    item_name_urdu: r.item_name_urdu,
+    unit_of_measure: r.unit_of_measure || 'PCS',
+    publisher_vendor: r.publisher_vendor,
+    image_url: r.image_url,
+    reorder_level: r.reorder_level,
+    reorder_qty: r.reorder_qty,
+    printed_price: r.printed_price,
+    purchase_discount_percent: r.purchase_discount_percent,
+    purchase_rate: r.purchase_rate,
+    weighted_average_rate: r.weighted_average_rate,
+    sale_discount_percent: r.sale_discount_percent,
+    sale_rate: r.sale_rate,
+    margin_percent: r.margin_percent,
+    packing: r.packing || 1,
+    bulk_rate: r.bulk_rate,
+    ctn_rate: r.ctn_rate,
+    ws_rate: r.ws_rate,
+    bulk_qty: r.bulk_qty,
+    stock_quantity: r.stock_quantity,
+    is_active: r.is_active,
+    created_by: currentUser?.id || 1,
+    created_at: new Date().toISOString(),
+  }));
+
+  setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, [...createdItems.slice().reverse(), ...items]);
+  const activeChainId = getActiveChainId();
+  if (!suppressPgSync) {
+    void databaseService.syncBatch(
+      createdItems.map((i) => ({ table: TABLE_NAMES.ITEM_DEFINITIONS, chainId: activeChainId, record: i as unknown as Record<string, unknown> }))
+    );
+  }
+  logActivity('BULK_IMPORT', 'Item_Definitions', createdItems.length, `Bulk imported ${createdItems.length} item definitions`);
+  return { success: true, message: `Successfully imported ${createdItems.length} item definitions`, count: createdItems.length };
 }
 
 // Wood Stocks
