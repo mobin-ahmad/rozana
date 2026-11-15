@@ -351,6 +351,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 <label className="block text-xs font-medium text-slate-300 mb-1">Host</label>
                 <input
                   type="text"
+                  data-preserve-case="true"
                   value={host}
                   onChange={(e) => setHost(e.target.value)}
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -362,6 +363,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 <label className="block text-xs font-medium text-slate-300 mb-1">Port</label>
                 <input
                   type="text"
+                  data-preserve-case="true"
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -373,6 +375,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 <label className="block text-xs font-medium text-slate-300 mb-1">Database</label>
                 <input
                   type="text"
+                  data-preserve-case="true"
                   value={database}
                   onChange={(e) => setDatabase(e.target.value)}
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -384,6 +387,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 <label className="block text-xs font-medium text-slate-300 mb-1">User</label>
                 <input
                   type="text"
+                  data-preserve-case="true"
                   value={user}
                   onChange={(e) => setUser(e.target.value)}
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"

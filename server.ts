@@ -481,6 +481,63 @@ const JSONB_COLUMNS = new Set([
   'assigned_branches',
 ]);
 
+const PG_PRESERVED_CASE_COLUMNS = new Set([
+  'id',
+  'organization_id',
+  'chain_id',
+  'branch_id',
+  'assigned_branch_id',
+  'plan_id',
+  'previous_plan_id',
+  'new_plan_id',
+  'custom_role_id',
+  'role_id',
+  'client_ref',
+  'record_id',
+  'role',
+  'base_role',
+  'status',
+  'account_status',
+  'branch_type',
+  'branch_access',
+  'payment_method',
+  'payment_type',
+  'action',
+  'category',
+  'custom_scan_behavior',
+  'password',
+  'password_hash',
+  'logo_url',
+  'image_url',
+  'image',
+  'created_at',
+  'updated_at',
+  'last_login',
+  'sale_date',
+  'purchase_date',
+  'payment_date',
+  'expense_date',
+  'opening_date',
+  'subscription_start_date',
+  'subscription_expiry_date',
+]);
+
+function normalizePgValueUppercase(col: string, val: unknown): unknown {
+  if (typeof val !== 'string') return val;
+  if (PG_PRESERVED_CASE_COLUMNS.has(col)) return val;
+  if (val.startsWith('data:') || val.startsWith('/assets/')) return val;
+  return val.toUpperCase();
+}
+
+function normalizePgRowUppercase<T extends Record<string, unknown>>(row: T): T {
+  if (!row || typeof row !== 'object') return row;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = normalizePgValueUppercase(k, v);
+  }
+  return out as T;
+}
+
 const tableColumnsCache = new Map<string, Map<string, string>>();
 
 async function getTableColumns(
@@ -666,6 +723,8 @@ async function syncRecordToDb(
       if (val === '' || val === null) {
         val = null;
       }
+    } else if (typeof val === 'string') {
+      val = normalizePgValueUppercase(col, val);
     }
     cleanPayload[col] = val;
   }
@@ -998,7 +1057,12 @@ app.get('/api/table/:tableName', async (req: Request, res: Response) => {
     if (rawTable === 'STORE_CHAINS') {
       try {
         const result = await pool.query(`SELECT * FROM "STORE_CHAINS" WHERE id = $1`, [auth.chainId]);
-        return res.json({ success: true, table: rawTable, count: result.rowCount, data: result.rows });
+        return res.json({
+          success: true,
+          table: rawTable,
+          count: result.rowCount,
+          data: result.rows.map(normalizePgRowUppercase),
+        });
       } catch (err: unknown) {
         return res.status(500).json({ success: false, table: rawTable, error: (err as Error).message });
       }
@@ -1018,7 +1082,12 @@ app.get('/api/table/:tableName', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(sql, params);
-    res.json({ success: true, table: rawTable, count: result.rowCount, data: result.rows });
+    res.json({
+      success: true,
+      table: rawTable,
+      count: result.rowCount,
+      data: result.rows.map(normalizePgRowUppercase),
+    });
   } catch (err: unknown) {
     const error = err as Error;
     res.status(500).json({ success: false, table: rawTable, error: error.message });
@@ -1076,13 +1145,13 @@ app.post('/api/table/:tableName', async (req: Request, res: Response) => {
     }
 
     const columns = keys.map((k) => `"${k}"`).join(', ');
-    const values = keys.map((k) => payload[k]);
+    const values = keys.map((k) => normalizePgValueUppercase(k, payload[k]));
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
 
     const sql = `INSERT INTO "${rawTable}" (${columns}) VALUES (${placeholders}) RETURNING *`;
     const result = await pool.query(sql, values);
 
-    res.status(201).json({ success: true, table: rawTable, data: result.rows[0] });
+    res.status(201).json({ success: true, table: rawTable, data: normalizePgRowUppercase(result.rows[0]) });
   } catch (err: unknown) {
     const error = err as Error;
     res.status(500).json({ success: false, table: rawTable, error: error.message });
@@ -1116,7 +1185,7 @@ app.put('/api/table/:tableName/:id', async (req: Request, res: Response) => {
 
   try {
     const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
-    const values = keys.map((k) => payload[k]);
+    const values = keys.map((k) => normalizePgValueUppercase(k, payload[k]));
     values.push(id);
 
     let sql = `UPDATE "${rawTable}" SET ${setClause} WHERE id = $${values.length} RETURNING *`;
@@ -1131,7 +1200,7 @@ app.put('/api/table/:tableName/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Record with id ${id} not found or access denied.` });
     }
 
-    res.json({ success: true, table: rawTable, data: result.rows[0] });
+    res.json({ success: true, table: rawTable, data: normalizePgRowUppercase(result.rows[0]) });
   } catch (err: unknown) {
     const error = err as Error;
     res.status(500).json({ success: false, table: rawTable, error: error.message });
@@ -1182,10 +1251,10 @@ app.get('/api/db/export-all', async (req: Request, res: Response) => {
       try {
         if (TENANT_SCOPED_TABLES.has(tableName) && auth.chainId && !auth.isSuperAdmin) {
           const queryRes = await pool.query(`SELECT * FROM "${tableName}" WHERE chain_id = $1`, [auth.chainId]);
-          exportData[tableName] = queryRes.rows;
+          exportData[tableName] = queryRes.rows.map(normalizePgRowUppercase);
         } else {
           const queryRes = await pool.query(`SELECT * FROM "${tableName}"`);
-          exportData[tableName] = queryRes.rows;
+          exportData[tableName] = queryRes.rows.map(normalizePgRowUppercase);
         }
       } catch {
         exportData[tableName] = [];

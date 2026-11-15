@@ -223,7 +223,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
   const [transactionId] = useState<string>(`ROZANA-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
   const [fulfillmentType, setFulfillmentType] = useState<'carry_out' | 'ship_to_home' | 'bopis'>('carry_out');
   const [shippingAddress, setShippingAddress] = useState('');
-  const [pickupStation, setPickupStation] = useState('Locker #04 - Front Register');
+  const [pickupStation, setPickupStation] = useState('LOCKER #04 - FRONT REGISTER');
 
   // 6. Transaction Totals & Payment State
   const [discountPercent, setDiscountPercent] = useState<number>(0);
@@ -233,7 +233,7 @@ export const RetailZPos: React.FC<RetailZPosProps> = ({ userRole, onNavigateToIn
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'wallet' | 'gift' | 'store_credit'>('cash');
 
   // Station & Associate Info
-  const [stationNumber] = useState<string>('Register #01');
+  const [stationNumber] = useState<string>('REGISTER #01');
   const [cashierId] = useState<string>(`EMP-${currentUser.id.toString().padStart(3, '0')} (${currentUser.full_name})`);
   const customerLoyaltyId = selectedCustomer.phone || `LOYALTY-${selectedCustomer.id}`;
 

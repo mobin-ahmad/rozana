@@ -82,7 +82,7 @@ function normalizeHeaderKey(key: string): string {
   return String(key || '')
     .trim()
     .toLowerCase()
-    .replace(/[\s_-]+/g, '_')
+    .replace(/[\s_/-]+/g, '_')
     .replace(/[()%]/g, '')
     .replace(/\.+/g, '_');
 }
@@ -301,9 +301,9 @@ export function validateItemDefinitionsBulk(
     const warnings: string[] = [];
     const issueBuckets = new Set<string>();
 
-    const itemCode = cellStr(getField(lookup, codeAliases));
-    const itemName = cellStr(getField(lookup, nameAliases));
-    const barcodeVal = cellStr(getField(lookup, ['Barcode', 'barcode', 'Bar Code', 'EAN', 'UPC']));
+    const itemCode = cellStr(getField(lookup, codeAliases)).toUpperCase();
+    const itemName = cellStr(getField(lookup, nameAliases)).toUpperCase();
+    const barcodeVal = cellStr(getField(lookup, ['Barcode', 'barcode', 'Bar Code', 'EAN', 'UPC'])).toUpperCase();
     const natLangName = cellStr(
       getField(lookup, [
         'National Language Item Name',
@@ -315,11 +315,11 @@ export function validateItemDefinitionsBulk(
         'national_language_item_name',
         'item_name_urdu',
       ])
-    );
-    const uom = cellStr(getField(lookup, ['Unit of Measure', 'Unit', 'UOM', 'unit_of_measure'])) || 'PCS';
+    ).toUpperCase();
+    const uom = (cellStr(getField(lookup, ['Unit of Measure', 'Unit', 'UOM', 'unit_of_measure'])) || 'PCS').toUpperCase();
     const vendor = cellStr(
       getField(lookup, ['Supplier/Vendor', 'Publisher/Vendor', 'Supplier', 'Vendor', 'Publisher', 'publisher_vendor'])
-    );
+    ).toUpperCase();
     const imageUrl = cellStr(getField(lookup, ['Image URL', 'image_url']));
 
     if (!itemCode) {
@@ -539,10 +539,10 @@ export function validateItemDefinitionsBulk(
       );
       if (brandMatch) {
         resolvedBrandId = brandMatch.id;
-        resolvedBrandName = brandMatch.name;
+        resolvedBrandName = (brandMatch.name || '').toUpperCase();
       } else {
-        resolvedBrandName = rawBrand;
-        warnings.push(`Brand "${rawBrand}" does not match an existing Brand entry (saved as brand text "${rawBrand}").`);
+        resolvedBrandName = rawBrand.toUpperCase();
+        warnings.push(`Brand "${rawBrand.toUpperCase()}" does not match an existing Brand entry (saved as brand text "${rawBrand.toUpperCase()}").`);
       }
     }
 
@@ -679,9 +679,27 @@ export function validateCategoriesBulk(
     const warnings: string[] = [];
     const buckets = new Set<string>();
 
-    const name = cellStr(getField(lookup, nameAliases));
-    const desc = cellStr(getField(lookup, ['Description', 'description']));
-    const groupInput = cellStr(getField(lookup, ['Item Group', 'Main Category', 'Item Group ID', 'group_id']));
+    const name = cellStr(getField(lookup, nameAliases)).toUpperCase();
+    const desc = cellStr(getField(lookup, ['Description', 'description'])).toUpperCase();
+    const groupInput = cellStr(
+      getField(lookup, [
+        'Group / Main Category',
+        'Group/Main Category',
+        'Item Group / Main Category',
+        'Parent Item Group / Main Category',
+        'Parent Item Group',
+        'Item Group',
+        'Main Category',
+        'Item Group ID',
+        'Item_Group_ID',
+        'item_group_id',
+        'Group',
+        'Group ID',
+        'group_id',
+        'Group Description',
+        'group_description',
+      ])
+    );
     const activeCheck = parseBoolField(getField(lookup, ['Is Active', 'Status', 'is_active']), true);
 
     if (!name) {
@@ -710,16 +728,19 @@ export function validateCategoriesBulk(
 
     let resolvedGroupId: number | string | undefined = undefined;
     if (groupInput) {
+      const groupLower = groupInput.toLowerCase();
+      const splitCode = groupInput.split(/\s+[—-]\s+/)[0]?.trim().toLowerCase() || '';
       const matchGroup = context.itemGroups.find(
         (g) =>
-          g.group_id.toLowerCase() === groupInput.toLowerCase() ||
-          g.group_description.toLowerCase() === groupInput.toLowerCase() ||
+          g.group_id.toLowerCase() === groupLower ||
+          (splitCode && g.group_id.toLowerCase() === splitCode) ||
+          g.group_description.toLowerCase() === groupLower ||
           String(g.id) === groupInput
       );
       if (matchGroup) {
         resolvedGroupId = matchGroup.id;
       } else {
-        warnings.push(`Item Group "${groupInput}" was not found and will remain unlinked.`);
+        warnings.push(`Group / Main Category "${groupInput.toUpperCase()}" was not found and will remain unlinked.`);
       }
     }
 
@@ -817,8 +838,8 @@ export function validateItemGroupsBulk(
     const errors: string[] = [];
     const buckets = new Set<string>();
 
-    const groupId = cellStr(getField(lookup, groupIdAliases));
-    const desc = cellStr(getField(lookup, ['Group Description', 'Group_Description', 'group_description', 'Description']));
+    const groupId = cellStr(getField(lookup, groupIdAliases)).toUpperCase();
+    const desc = cellStr(getField(lookup, ['Group Description', 'Group_Description', 'group_description', 'Description'])).toUpperCase();
     const activeCheck = parseBoolField(getField(lookup, ['Is Active', 'Status', 'is_active']), true);
 
     if (!groupId) {
@@ -939,9 +960,9 @@ export function validateBrandsBulk(
     const errors: string[] = [];
     const buckets = new Set<string>();
 
-    const name = cellStr(getField(lookup, nameAliases));
-    const rawCode = cellStr(getField(lookup, ['Brand Code', 'Code', 'code']));
-    const desc = cellStr(getField(lookup, ['Description', 'description']));
+    const name = cellStr(getField(lookup, nameAliases)).toUpperCase();
+    const rawCode = cellStr(getField(lookup, ['Brand Code', 'Code', 'code'])).toUpperCase();
+    const desc = cellStr(getField(lookup, ['Description', 'description'])).toUpperCase();
     const activeCheck = parseBoolField(getField(lookup, ['Is Active', 'Status', 'is_active']), true);
 
     if (!name) {
@@ -963,7 +984,7 @@ export function validateBrandsBulk(
       }
     }
 
-    let code = rawCode;
+    let code = rawCode.toUpperCase();
     if (!code) {
       while (true) {
         const candidate = `BRD-${String(autoSeq++).padStart(3, '0')}`;

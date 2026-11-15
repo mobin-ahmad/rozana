@@ -1,4 +1,5 @@
 import { TableName, getActiveChainId, getCurrentUser, isUserSuperAdmin, getSettings } from './storage';
+import { normalizeRecordUppercase } from './uppercase';
 
 function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
   try {
@@ -141,7 +142,7 @@ export const databaseService = {
       });
       if (!res.ok) return [];
       const json = await res.json();
-      return json.data || [];
+      return normalizeRecordUppercase((json.data || []) as T[]);
     } catch {
       return [];
     }
@@ -153,11 +154,11 @@ export const databaseService = {
       const res = await fetch(`/api/table/${encodeURIComponent(upperName)}`, {
         method: 'POST',
         headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(record),
+        body: JSON.stringify(normalizeRecordUppercase(record)),
       });
       if (!res.ok) return null;
       const json = await res.json();
-      return json.data as T;
+      return normalizeRecordUppercase(json.data as T);
     } catch {
       return null;
     }
@@ -169,11 +170,11 @@ export const databaseService = {
       const res = await fetch(`/api/table/${encodeURIComponent(upperName)}/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(record),
+        body: JSON.stringify(normalizeRecordUppercase(record)),
       });
       if (!res.ok) return null;
       const json = await res.json();
-      return json.data as T;
+      return normalizeRecordUppercase(json.data as T);
     } catch {
       return null;
     }
@@ -201,6 +202,7 @@ export const databaseService = {
       return Promise.resolve(false);
     }
     const upperTable = String(tableName).toUpperCase();
+    const upperRecord = normalizeRecordUppercase(record);
     return enqueueSync(async () => {
       try {
         const res = await fetch('/api/db/sync-record', {
@@ -209,7 +211,7 @@ export const databaseService = {
           body: JSON.stringify({
             table: upperTable,
             chainId: chainId || 'chain-default',
-            record,
+            record: upperRecord,
           }),
         });
         return res.ok;
@@ -267,7 +269,10 @@ export const databaseService = {
         const allErrors: Array<{ index?: number; table: string; identifier?: string; error: string }> = [];
 
         for (let i = 0; i < items.length; i += chunkSize) {
-          const chunk = items.slice(i, i + chunkSize);
+          const chunk = items.slice(i, i + chunkSize).map((item) => ({
+            ...item,
+            record: normalizeRecordUppercase(item.record),
+          }));
           const res = await fetch('/api/db/sync-batch', {
             method: 'POST',
             headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
@@ -322,7 +327,7 @@ export const databaseService = {
       });
       if (!res.ok) return null;
       const json = await res.json();
-      return json.data;
+      return json.data ? normalizeRecordUppercase(json.data) : null;
     } catch {
       return null;
     }

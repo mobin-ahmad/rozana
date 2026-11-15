@@ -43,12 +43,14 @@ import {
   validateItemDefinitionsBulk,
   validateItemGroupsBulk,
 } from './bulkValidation';
+import { normalizeRecordUppercase } from './uppercase';
 
 let suppressPgSync = false;
 
 function pgSync(table: string, chainId: string, record: unknown): void {
   if (suppressPgSync || !record || typeof record !== 'object') return;
-  void databaseService.syncRecord(table, chainId || 'chain-default', record as Record<string, unknown>);
+  const normalized = normalizeRecordUppercase(record as Record<string, unknown>);
+  void databaseService.syncRecord(table, chainId || 'chain-default', normalized);
 }
 
 function pgDelete(table: string, chainId: string, id: string | number): void {
@@ -319,38 +321,41 @@ export function getSubscriptionPlans(): SubscriptionPlan[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SUBSCRIPTION_PLANS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(DEFAULT_SUBSCRIPTION_PLANS));
-      return DEFAULT_SUBSCRIPTION_PLANS;
+      const defaults = normalizeRecordUppercase(DEFAULT_SUBSCRIPTION_PLANS);
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(defaults));
+      return defaults;
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(DEFAULT_SUBSCRIPTION_PLANS));
-      return DEFAULT_SUBSCRIPTION_PLANS;
+      const defaults = normalizeRecordUppercase(DEFAULT_SUBSCRIPTION_PLANS);
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(defaults));
+      return defaults;
     }
     const { plans: normalized, changed } = normalizeSubscriptionPlanList(parsed);
+    const upperPlans = normalizeRecordUppercase(normalized);
     if (changed) {
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalized));
-      const freePlan = normalized.find((p) => p.id === 'plan-free');
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(upperPlans));
+      const freePlan = upperPlans.find((p) => p.id === 'plan-free');
       if (freePlan) {
         pgSync(TABLE_NAMES.SUBSCRIPTION_PLANS, 'chain-default', freePlan);
       }
     }
-    return normalized;
+    return upperPlans;
   } catch {
-    return DEFAULT_SUBSCRIPTION_PLANS;
+    return normalizeRecordUppercase(DEFAULT_SUBSCRIPTION_PLANS);
   }
 }
 
 export function getPlanById(planId?: string): SubscriptionPlan {
   const plans = getSubscriptionPlans();
-  return plans.find((p) => p.id === planId) || plans[0] || DEFAULT_SUBSCRIPTION_PLANS[0];
+  return plans.find((p) => p.id === planId) || plans[0] || normalizeRecordUppercase(DEFAULT_SUBSCRIPTION_PLANS)[0];
 }
 
 export function saveSubscriptionPlan(
   planData: Partial<SubscriptionPlan> & { name: string }
 ): { success: boolean; message: string; plan?: SubscriptionPlan } {
   const plans = getSubscriptionPlans();
-  const cleanName = planData.name.trim();
+  const cleanName = planData.name.trim().toUpperCase();
   if (!cleanName) {
     return { success: false, message: 'Plan name is required.' };
   }
@@ -358,7 +363,7 @@ export function saveSubscriptionPlan(
   if (planData.id) {
     const idx = plans.findIndex((p) => p.id === planData.id);
     if (idx === -1) return { success: false, message: 'Subscription plan not found.' };
-    plans[idx] = {
+    plans[idx] = normalizeRecordUppercase({
       ...plans[idx],
       ...planData,
       name: cleanName,
@@ -369,7 +374,7 @@ export function saveSubscriptionPlan(
       monthly_price: Math.max(0, Number(planData.monthly_price ?? plans[idx].monthly_price)),
       annual_price: Math.max(0, Number(planData.annual_price ?? plans[idx].annual_price)),
       updated_at: new Date().toISOString(),
-    };
+    });
     localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(plans));
     pgSync(TABLE_NAMES.SUBSCRIPTION_PLANS, 'chain-default', plans[idx]);
     logActivity('UPDATE', 'SUBSCRIPTION_PLANS', plans[idx].id, `Updated subscription plan "${plans[idx].name}"`);
@@ -381,7 +386,7 @@ export function saveSubscriptionPlan(
     return { success: false, message: 'A subscription plan with this name already exists.' };
   }
 
-  const newPlan: SubscriptionPlan = {
+  const newPlan: SubscriptionPlan = normalizeRecordUppercase({
     id: `plan-${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`,
     name: cleanName,
     description: planData.description || '',
@@ -397,7 +402,7 @@ export function saveSubscriptionPlan(
         : ['dashboard', 'pos', 'inventory', 'purchases', 'sales', 'customers', 'suppliers', 'payments', 'organization', 'users'],
     status: planData.status || 'active',
     created_at: new Date().toISOString(),
-  };
+  });
 
   const updated = [...plans, newPlan];
   localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(updated));
@@ -424,7 +429,7 @@ export function getSubscriptionHistory(orgId?: string): SubscriptionHistoryEntry
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY);
     const list: SubscriptionHistoryEntry[] = raw ? JSON.parse(raw) : [];
-    const safeList = Array.isArray(list) ? list : [];
+    const safeList = Array.isArray(list) ? normalizeRecordUppercase(list) : [];
     return orgId ? safeList.filter((h) => h.organization_id === orgId) : safeList;
   } catch {
     return [];
@@ -433,11 +438,11 @@ export function getSubscriptionHistory(orgId?: string): SubscriptionHistoryEntry
 
 export function recordSubscriptionHistory(entry: Omit<SubscriptionHistoryEntry, 'id' | 'created_at'>): void {
   const existing = getSubscriptionHistory();
-  const record: SubscriptionHistoryEntry = {
+  const record: SubscriptionHistoryEntry = normalizeRecordUppercase({
     ...entry,
     id: `subh-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     created_at: new Date().toISOString(),
-  };
+  });
   localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify([record, ...existing].slice(0, 200)));
   pgSync(TABLE_NAMES.SUBSCRIPTION_HISTORY, record.organization_id || 'chain-default', record);
 }
@@ -525,7 +530,7 @@ export function getStoreChains(): StoreChain[] {
       if (!c.plan_id || !c.status || !c.max_branches || !c.max_users) {
         dirty = true;
       }
-      return {
+      return normalizeRecordUppercase({
         ...c,
         plan_id: nextPlanId,
         status: nextStatus,
@@ -535,7 +540,7 @@ export function getStoreChains(): StoreChain[] {
         max_pos_terminals: c.max_pos_terminals || planObj.max_pos_terminals,
         subscription_start_date: c.subscription_start_date || (c.created_at ? c.created_at.split('T')[0] : '2026-01-01'),
         subscription_expiry_date: c.subscription_expiry_date || '2027-12-31',
-      };
+      });
     });
     if (dirty) {
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(normalized));
@@ -557,7 +562,7 @@ export function getActiveChainId(): string {
 export function getActiveStoreChain(): StoreChain {
   const chains = getStoreChains();
   if (chains.length === 0) {
-    return {
+    return normalizeRecordUppercase({
       id: 'chain-default',
       name: 'Global Platform Console',
       code: 'GLOBAL',
@@ -582,7 +587,7 @@ export function getActiveStoreChain(): StoreChain {
       status: 'active',
       created_at: '2026-01-01T00:00:00.000Z',
       is_active: true,
-    };
+    });
   }
   const activeId = getActiveChainId();
   return chains.find((c) => c.id === activeId) || chains[0];
@@ -598,7 +603,7 @@ export function setActiveStoreChain(chainId: string, allowPreAuth: boolean = fal
   localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, chainId);
   if (current && isUserSuperAdmin(current)) {
     const targetKey = chainId === 'chain-default' ? STORAGE_KEYS.CURRENT_USER : `${STORAGE_KEYS.CURRENT_USER}_${chainId}`;
-    localStorage.setItem(targetKey, JSON.stringify(MOBIN_SUPER_ADMIN));
+    localStorage.setItem(targetKey, JSON.stringify(normalizeRecordUppercase(MOBIN_SUPER_ADMIN)));
   }
   notifyStorageChange();
   return true;
@@ -612,30 +617,31 @@ export function updateStoreChain(
   const idx = chains.findIndex((c) => c.id === chainId);
   if (idx === -1) return { success: false, message: 'Organization not found' };
 
-  const updatedStatus = data.status || chains[idx].status || (data.is_active === false ? 'suspended' : 'active');
-  chains[idx] = {
+  const upperData = normalizeRecordUppercase(data);
+  const updatedStatus = upperData.status || chains[idx].status || (upperData.is_active === false ? 'suspended' : 'active');
+  chains[idx] = normalizeRecordUppercase({
     ...chains[idx],
-    ...data,
+    ...upperData,
     status: updatedStatus,
     is_active: updatedStatus === 'active',
-  };
+  });
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(chains));
 
   const settingsKey = chainId === 'chain-default' ? STORAGE_KEYS.SETTINGS : `${STORAGE_KEYS.SETTINGS}_${chainId}`;
   try {
     const rawSettings = localStorage.getItem(settingsKey);
     if (rawSettings) {
-      const s = JSON.parse(rawSettings);
-      if (data.name) s.business_name = data.name;
-      if (data.address) s.business_address = data.address;
-      if (data.phone) s.business_phone = data.phone;
-      if (data.logo_url !== undefined) s.logo_url = data.logo_url;
-      if (data.tax_id !== undefined) s.tax_id = data.tax_id;
-      if (data.registration_number !== undefined) s.registration_number = data.registration_number;
-      if (data.website !== undefined) s.website = data.website;
-      if (data.country !== undefined) s.country = data.country;
-      if (data.city !== undefined) s.city = data.city;
-      localStorage.setItem(settingsKey, JSON.stringify(s));
+      const s = normalizeRecordUppercase(JSON.parse(rawSettings));
+      if (upperData.name) s.business_name = upperData.name;
+      if (upperData.address) s.business_address = upperData.address;
+      if (upperData.phone) s.business_phone = upperData.phone;
+      if (upperData.logo_url !== undefined) s.logo_url = upperData.logo_url;
+      if (upperData.tax_id !== undefined) s.tax_id = upperData.tax_id;
+      if (upperData.registration_number !== undefined) s.registration_number = upperData.registration_number;
+      if (upperData.website !== undefined) s.website = upperData.website;
+      if (upperData.country !== undefined) s.country = upperData.country;
+      if (upperData.city !== undefined) s.city = upperData.city;
+      localStorage.setItem(settingsKey, JSON.stringify(normalizeRecordUppercase(s)));
     }
   } catch {
     // ignore
@@ -800,7 +806,7 @@ export function registerOrganization(data: {
   switchContext?: boolean;
 }): { success: boolean; message: string; chain?: StoreChain; adminUser?: User } {
   const chains = getStoreChains();
-  const cleanName = data.name.trim();
+  const cleanName = data.name.trim().toUpperCase();
   if (!cleanName) {
     return { success: false, message: 'Organization name is required.' };
   }
@@ -824,12 +830,12 @@ export function registerOrganization(data: {
 
   const newChainId = `org-${Date.now()}`;
   const adminUsername =
-    (data.admin_username || data.admin_email.split('@')[0] || 'orgadmin')
+    (data.admin_username || data.admin_email.split('@')[0] || 'ORGADMIN')
       .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_.-]/g, '') || 'orgadmin';
+      .toUpperCase()
+      .replace(/[^A-Z0-9_.-]/g, '') || 'ORGADMIN';
 
-  const newChain: StoreChain = {
+  const newChain: StoreChain = normalizeRecordUppercase({
     id: newChainId,
     name: cleanName,
     code: finalCode,
@@ -857,7 +863,7 @@ export function registerOrganization(data: {
     status: orgStatus,
     created_at: new Date().toISOString(),
     is_active: orgStatus === 'active',
-  };
+  });
 
   localStorage.removeItem(PURGE_FLAG_KEYS.ORGS_PURGED);
   localStorage.removeItem(PURGE_FLAG_KEYS.BRANCHES_PURGED);
@@ -865,7 +871,7 @@ export function registerOrganization(data: {
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(updatedChains));
 
   const headOfficeBranchId = `br-${finalCode.toLowerCase()}-01`;
-  const headOfficeBranch: StoreBranch = {
+  const headOfficeBranch: StoreBranch = normalizeRecordUppercase({
     id: headOfficeBranchId,
     organization_id: newChainId,
     name: `${cleanName} - Head Office`,
@@ -883,12 +889,12 @@ export function registerOrganization(data: {
     opening_date: startDate,
     is_head_office: true,
     is_active: true,
-  };
+  });
 
-  const orgRoles = buildDefaultRolesForOrg(newChainId);
+  const orgRoles = normalizeRecordUppercase(buildDefaultRolesForOrg(newChainId));
   const orgAdminRole = orgRoles.find((r) => r.base_role === 'admin');
 
-  const adminUser: User = {
+  const adminUser: User = normalizeRecordUppercase({
     id: 1001,
     organization_id: newChainId,
     username: adminUsername,
@@ -908,9 +914,9 @@ export function registerOrganization(data: {
     assigned_branch_id: 'all',
     assigned_branches: ['all'],
     permissions: defaultPermissionsByRole('admin'),
-  };
+  });
 
-  const initialTenantSettings: SystemSettings = {
+  const initialTenantSettings: SystemSettings = normalizeRecordUppercase({
     business_name: cleanName,
     logo_url: data.logo_url || '',
     business_address: headOfficeBranch.address,
@@ -933,7 +939,7 @@ export function registerOrganization(data: {
     base_currency: 'PKR',
     active_display_currency: 'PKR',
     currencies: defaultCurrencies,
-  };
+  });
 
   localStorage.setItem(`${STORAGE_KEYS.USERS}_${newChainId}`, JSON.stringify([adminUser]));
   localStorage.setItem(`${STORAGE_KEYS.CURRENT_USER}_${newChainId}`, JSON.stringify(adminUser));
@@ -953,7 +959,7 @@ export function registerOrganization(data: {
   localStorage.setItem(`${STORAGE_KEYS.PAYMENTS}_${newChainId}`, JSON.stringify([]));
   localStorage.setItem(`${STORAGE_KEYS.EXPENSES}_${newChainId}`, JSON.stringify([]));
   localStorage.setItem(`${STORAGE_KEYS.IMPORT_LOGS}_${newChainId}`, JSON.stringify([]));
-  const initialOrgLog: ActivityLog = {
+  const initialOrgLog: ActivityLog = normalizeRecordUppercase({
     id: 1,
     organization_id: newChainId,
     organization_name: cleanName,
@@ -966,7 +972,7 @@ export function registerOrganization(data: {
     record_id: newChainId,
     details: `Organization "${cleanName}" (${finalCode}) registered on ${plan.name} plan`,
     created_at: new Date().toISOString(),
-  };
+  });
 
   localStorage.setItem(`${STORAGE_KEYS.LOGS}_${newChainId}`, JSON.stringify([initialOrgLog]));
 
@@ -1076,7 +1082,7 @@ function getStoredItem<T>(key: string, defaultValue: T): T {
       }
     }
     if (item !== null) {
-      return JSON.parse(item);
+      return normalizeRecordUppercase(JSON.parse(item) as T);
     }
     // If key is not found in localStorage and we are in a non-default store chain,
     // ensure we NEVER fallback to Askari demo data!
@@ -1086,16 +1092,17 @@ function getStoredItem<T>(key: string, defaultValue: T): T {
         return [] as unknown as T;
       }
     }
-    return defaultValue;
+    return normalizeRecordUppercase(defaultValue);
   } catch {
-    return defaultValue;
+    return normalizeRecordUppercase(defaultValue);
   }
 }
 
 function setStoredItem<T>(key: string, value: T): void {
   try {
     const tenantKey = getTenantStorageKey(key);
-    localStorage.setItem(tenantKey, JSON.stringify(value));
+    const normalizedValue = normalizeRecordUppercase(value);
+    localStorage.setItem(tenantKey, JSON.stringify(normalizedValue));
     notifyStorageChange();
   } catch (e) {
     console.error(`Failed to store item ${key}:`, e);
@@ -1587,23 +1594,25 @@ export function getRoles(chainId?: string): RoleDefinition[] {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) {
-      const seeded = buildDefaultRolesForOrg(targetChainId);
+      const seeded = normalizeRecordUppercase(buildDefaultRolesForOrg(targetChainId));
       localStorage.setItem(key, JSON.stringify(seeded));
       return seeded;
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      const seeded = buildDefaultRolesForOrg(targetChainId);
+      const seeded = normalizeRecordUppercase(buildDefaultRolesForOrg(targetChainId));
       localStorage.setItem(key, JSON.stringify(seeded));
       return seeded;
     }
-    return parsed.map((r: RoleDefinition) => ({
-      ...r,
-      permissions: { ...defaultPermissionsByRole(r.base_role || 'cashier'), ...(r.permissions || {}) },
-      matrix: { ...createMatrixForRole(r.base_role || 'cashier'), ...(r.matrix || {}) },
-    }));
+    return parsed.map((r: RoleDefinition) =>
+      normalizeRecordUppercase({
+        ...r,
+        permissions: { ...defaultPermissionsByRole(r.base_role || 'cashier'), ...(r.permissions || {}) },
+        matrix: { ...createMatrixForRole(r.base_role || 'cashier'), ...(r.matrix || {}) },
+      })
+    );
   } catch {
-    return buildDefaultRolesForOrg(targetChainId);
+    return normalizeRecordUppercase(buildDefaultRolesForOrg(targetChainId));
   }
 }
 
@@ -1613,18 +1622,18 @@ export function saveRole(
   const orgId = getActiveChainId();
   const roles = getRoles(orgId);
   const key = getTenantStorageKey(STORAGE_KEYS.ROLES, orgId);
-  const cleanName = roleInput.name.trim();
+  const cleanName = roleInput.name.trim().toUpperCase();
   if (!cleanName) return { success: false, message: 'Role name is required.' };
 
   if (roleInput.id) {
     const idx = roles.findIndex((r) => r.id === roleInput.id);
     if (idx === -1) return { success: false, message: 'Role not found.' };
-    roles[idx] = {
+    roles[idx] = normalizeRecordUppercase({
       ...roles[idx],
       ...roleInput,
       name: cleanName,
       updated_at: new Date().toISOString(),
-    };
+    });
     localStorage.setItem(key, JSON.stringify(roles));
     pgSync(TABLE_NAMES.ROLES, orgId, { ...roles[idx], chain_id: orgId });
 
@@ -1655,7 +1664,7 @@ export function saveRole(
     return { success: false, message: 'A role with this name already exists in this organization.' };
   }
 
-  const newRole: RoleDefinition = {
+  const newRole: RoleDefinition = normalizeRecordUppercase({
     id: `role-${orgId}-${Date.now()}`,
     organization_id: orgId,
     name: cleanName,
@@ -1666,7 +1675,7 @@ export function saveRole(
     matrix: roleInput.matrix || createMatrixForRole(roleInput.base_role),
     is_system: false,
     created_at: new Date().toISOString(),
-  };
+  });
 
   const nextRoles = [...roles, newRole];
   localStorage.setItem(key, JSON.stringify(nextRoles));
@@ -1699,7 +1708,10 @@ export function getOrganizationUsers(chainId: string): User[] {
     let list: User[] = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(list)) list = [];
     // Exclude Global Super Admin from organization employee seat counts
-    return list.filter((u) => u && !isUserSuperAdmin(u)).map(normalizeUserRecord);
+    return list
+      .filter((u) => u && !isUserSuperAdmin(u))
+      .map(normalizeUserRecord)
+      .map((u) => normalizeRecordUppercase(u));
   } catch {
     return [];
   }
@@ -1712,7 +1724,7 @@ export function getOrganizationBranches(chainId: string): StoreBranch[] {
     if (raw) {
       const s: SystemSettings = JSON.parse(raw);
       if (Array.isArray(s.branches)) {
-        return s.branches;
+        return normalizeRecordUppercase(s.branches);
       }
     }
   } catch {
@@ -1727,7 +1739,7 @@ export function getOrganizationSales(chainId: string): Sale[] {
     const raw = localStorage.getItem(key);
     if (raw) {
       const list = JSON.parse(raw);
-      return Array.isArray(list) ? list : [];
+      return Array.isArray(list) ? normalizeRecordUppercase(list) : [];
     }
     return [];
   } catch {
@@ -2031,11 +2043,29 @@ export function bulkImportCategories(rows: any[]): { success: boolean; message: 
     if (!name) continue;
     if (cats.some((c) => c.name.toLowerCase() === name.toLowerCase())) continue; // Skip duplicate
 
-    const itemGroupInput = String(r['Item Group'] || r['Main Category'] || r['Item Group ID'] || r['group_id'] || '').trim();
+    const itemGroupInput = String(
+      r['Group / Main Category'] ||
+        r['Group/Main Category'] ||
+        r['Item Group / Main Category'] ||
+        r['Parent Item Group'] ||
+        r['Item Group'] ||
+        r['Main Category'] ||
+        r['Item Group ID'] ||
+        r['item_group_id'] ||
+        r['group_id'] ||
+        r['Group'] ||
+        ''
+    ).trim();
     let itemGroupId: number | string | undefined = undefined;
     if (itemGroupInput) {
+      const groupLower = itemGroupInput.toLowerCase();
+      const splitCode = itemGroupInput.split(/\s+[—-]\s+/)[0]?.trim().toLowerCase() || '';
       const matchGroup = itemGroups.find(
-        (g) => g.group_id.toLowerCase() === itemGroupInput.toLowerCase() || g.group_description.toLowerCase() === itemGroupInput.toLowerCase() || String(g.id) === itemGroupInput
+        (g) =>
+          g.group_id.toLowerCase() === groupLower ||
+          (splitCode && g.group_id.toLowerCase() === splitCode) ||
+          g.group_description.toLowerCase() === groupLower ||
+          String(g.id) === itemGroupInput
       );
       if (matchGroup) itemGroupId = matchGroup.id;
     }
@@ -2357,7 +2387,7 @@ async function syncCommittedBatch(
     return { pgConnected: false, pgSyncedCount: 0, pgErrorCount: 0, pgErrors: [] };
   }
   const res = await databaseService.syncBatch(
-    records.map((record) => ({ table, chainId, record }))
+    records.map((record) => ({ table, chainId, record: normalizeRecordUppercase(record) }))
   );
   return {
     pgConnected: true,
@@ -3912,7 +3942,7 @@ function readRawTenantList<T>(baseKey: string, chainId: string, _defaultFallback
     const raw = localStorage.getItem(tenantKey);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? normalizeRecordUppercase(parsed) : [];
     }
     return [];
   } catch {
@@ -3951,7 +3981,7 @@ export async function syncAllLocalToPostgres(): Promise<{
   items.push({
     table: TABLE_NAMES.USERS,
     chainId: 'chain-default',
-    record: { ...MOBIN_SUPER_ADMIN, is_super_admin: true, chain_id: null } as unknown as Record<string, unknown>,
+    record: normalizeRecordUppercase({ ...MOBIN_SUPER_ADMIN, is_super_admin: true, chain_id: null }) as unknown as Record<string, unknown>,
   });
 
   for (const chain of chains) {
@@ -4037,7 +4067,7 @@ export async function syncAllLocalToPostgres(): Promise<{
     return { success: true, syncedCount: 0, message: 'No local records found to sync.' };
   }
 
-  const res = await databaseService.syncBatch(items);
+  const res = await databaseService.syncBatch(items.map((it) => ({ ...it, record: normalizeRecordUppercase(it.record) })));
   if (res.success) {
     return {
       success: true,
@@ -4075,7 +4105,7 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
     rows.filter((r: any) => (r?.chain_id || 'chain-default') === chainId);
 
   const writeTenantList = (baseKey: string, chainId: string, data: unknown[]) => {
-    localStorage.setItem(getTenantStorageKey(baseKey, chainId), JSON.stringify(data));
+    localStorage.setItem(getTenantStorageKey(baseKey, chainId), JSON.stringify(normalizeRecordUppercase(data)));
   };
 
   suppressPgSync = true;
@@ -4098,46 +4128,49 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           updated_at: r.updated_at || undefined,
         }));
         const { plans: normalizedPlans } = normalizeSubscriptionPlanList(mapped);
-        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalizedPlans));
+        const upperPlans = normalizeRecordUppercase(normalizedPlans);
+        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(upperPlans));
         syncedTables++;
-        totalRows += normalizedPlans.length;
+        totalRows += upperPlans.length;
       } else {
         const { plans: defaultPlans } = normalizeSubscriptionPlanList(DEFAULT_SUBSCRIPTION_PLANS);
-        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(defaultPlans));
+        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalizeRecordUppercase(defaultPlans)));
       }
     }
 
     let mappedChains: StoreChain[] = [];
     if (Array.isArray(snapshot.STORE_CHAINS)) {
-      mappedChains = snapshot.STORE_CHAINS.map((r: any) => ({
-        id: String(r.id),
-        name: r.name || '',
-        code: r.code || '',
-        business_type: r.business_type || 'Retail & Departmental Store',
-        industry: r.industry || 'Retail & General POS',
-        description: r.description || '',
-        registration_number: r.registration_number || '',
-        tax_id: r.tax_id || '',
-        website: r.website || '',
-        country: r.country || 'Pakistan',
-        city: r.city || '',
-        logo_url: r.logo_url || '',
-        admin_email: r.admin_email || '',
-        admin_name: r.admin_name || '',
-        admin_username: r.admin_username || '',
-        admin_phone: r.admin_phone || r.phone || '',
-        phone: r.phone || '',
-        address: r.address || '',
-        plan_id: r.plan_id || 'plan-free',
-        subscription_start_date: r.subscription_start_date ? String(r.subscription_start_date).split('T')[0] : '2026-01-01',
-        subscription_expiry_date: r.subscription_expiry_date ? String(r.subscription_expiry_date).split('T')[0] : '2028-12-31',
-        max_branches: num(r.max_branches, 5),
-        max_users: num(r.max_users, 25),
-        max_pos_terminals: num(r.max_pos_terminals, 10),
-        status: r.status || (r.is_active === false ? 'suspended' : 'active'),
-        created_at: r.created_at || new Date().toISOString(),
-        is_active: r.is_active !== false,
-      }));
+      mappedChains = snapshot.STORE_CHAINS.map((r: any) =>
+        normalizeRecordUppercase({
+          id: String(r.id),
+          name: r.name || '',
+          code: r.code || '',
+          business_type: r.business_type || 'Retail & Departmental Store',
+          industry: r.industry || 'Retail & General POS',
+          description: r.description || '',
+          registration_number: r.registration_number || '',
+          tax_id: r.tax_id || '',
+          website: r.website || '',
+          country: r.country || 'Pakistan',
+          city: r.city || '',
+          logo_url: r.logo_url || '',
+          admin_email: r.admin_email || '',
+          admin_name: r.admin_name || '',
+          admin_username: r.admin_username || '',
+          admin_phone: r.admin_phone || r.phone || '',
+          phone: r.phone || '',
+          address: r.address || '',
+          plan_id: r.plan_id || 'plan-free',
+          subscription_start_date: r.subscription_start_date ? String(r.subscription_start_date).split('T')[0] : '2026-01-01',
+          subscription_expiry_date: r.subscription_expiry_date ? String(r.subscription_expiry_date).split('T')[0] : '2028-12-31',
+          max_branches: num(r.max_branches, 5),
+          max_users: num(r.max_users, 25),
+          max_pos_terminals: num(r.max_pos_terminals, 10),
+          status: r.status || (r.is_active === false ? 'suspended' : 'active'),
+          created_at: r.created_at || new Date().toISOString(),
+          is_active: r.is_active !== false,
+        })
+      );
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(mappedChains));
       syncedTables++;
       totalRows += mappedChains.length;
@@ -4151,7 +4184,10 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
     }
 
     if (Array.isArray(snapshot.SUBSCRIPTION_HISTORY)) {
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify(snapshot.SUBSCRIPTION_HISTORY));
+      localStorage.setItem(
+        STORAGE_KEYS.SUBSCRIPTION_HISTORY,
+        JSON.stringify(normalizeRecordUppercase(snapshot.SUBSCRIPTION_HISTORY))
+      );
       if (snapshot.SUBSCRIPTION_HISTORY.length > 0) {
         syncedTables++;
         totalRows += snapshot.SUBSCRIPTION_HISTORY.length;
@@ -4169,29 +4205,31 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
     if (Array.isArray(snapshot.BRANCHES)) {
       let branchRowsCount = 0;
       for (const cid of allChainIds) {
-        const chainBranches = forChain(snapshot.BRANCHES, cid).map((r: any) => ({
-          id: String(r.id),
-          organization_id: r.chain_id || cid,
-          name: r.name || '',
-          code: r.code || '',
-          branch_type: r.branch_type || 'retail_outlet',
-          contact_person: r.contact_person || '',
-          manager_user_id: r.manager_user_id ? num(r.manager_user_id) : null,
-          manager_name: r.manager_name || '',
-          address: r.address || '',
-          address_line_2: r.address_line_2 || '',
-          phone: r.phone || '',
-          cell_phone: r.cell_phone || '',
-          email: r.email || '',
-          region: r.region || '',
-          city: r.city || '',
-          postal_code: r.postal_code || '',
-          country: r.country || 'Pakistan',
-          status: r.status || (r.is_active === false ? 'inactive' : 'active'),
-          opening_date: r.opening_date ? String(r.opening_date).split('T')[0] : undefined,
-          is_head_office: Boolean(r.is_head_office),
-          is_active: r.is_active !== false,
-        }));
+        const chainBranches = forChain(snapshot.BRANCHES, cid).map((r: any) =>
+          normalizeRecordUppercase({
+            id: String(r.id),
+            organization_id: r.chain_id || cid,
+            name: r.name || '',
+            code: r.code || '',
+            branch_type: r.branch_type || 'retail_outlet',
+            contact_person: r.contact_person || '',
+            manager_user_id: r.manager_user_id ? num(r.manager_user_id) : null,
+            manager_name: r.manager_name || '',
+            address: r.address || '',
+            address_line_2: r.address_line_2 || '',
+            phone: r.phone || '',
+            cell_phone: r.cell_phone || '',
+            email: r.email || '',
+            region: r.region || '',
+            city: r.city || '',
+            postal_code: r.postal_code || '',
+            country: r.country || 'Pakistan',
+            status: r.status || (r.is_active === false ? 'inactive' : 'active'),
+            opening_date: r.opening_date ? String(r.opening_date).split('T')[0] : undefined,
+            is_head_office: Boolean(r.is_head_office),
+            is_active: r.is_active !== false,
+          })
+        );
         branchRowsCount += chainBranches.length;
 
         const settingsKey = getTenantStorageKey(STORAGE_KEYS.SETTINGS, cid);
@@ -4209,14 +4247,16 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
         const activeBranch = chainBranches.find((b) => b.id === existingActive) || chainBranches[0];
         localStorage.setItem(
           settingsKey,
-          JSON.stringify({
-            ...baseSettings,
-            business_name: matchedChain?.name || (cid === 'chain-default' ? 'Rozana POS' : baseSettings.business_name),
-            logo_url: matchedChain?.logo_url ?? baseSettings.logo_url,
-            branches: chainBranches,
-            active_branch_id: activeBranch ? activeBranch.id : '',
-            branch_name: activeBranch ? activeBranch.name : '',
-          })
+          JSON.stringify(
+            normalizeRecordUppercase({
+              ...baseSettings,
+              business_name: matchedChain?.name || (cid === 'chain-default' ? 'Rozana POS' : baseSettings.business_name),
+              logo_url: matchedChain?.logo_url ?? baseSettings.logo_url,
+              branches: chainBranches,
+              active_branch_id: activeBranch ? activeBranch.id : '',
+              branch_name: activeBranch ? activeBranch.name : '',
+            })
+          )
         );
       }
       syncedTables++;

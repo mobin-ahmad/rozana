@@ -51,7 +51,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState<boolean>(false);
 
   // Form inputs
-  const [identifier, setIdentifier] = useState<string>('mobin');
+  const [identifier, setIdentifier] = useState<string>('MOBIN');
   const [password, setPassword] = useState<string>('123456');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('br-head-office');

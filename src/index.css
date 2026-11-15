@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Enforce uppercase presentation on all text entry fields while preserving placeholders */
+input:not([type="password"]):not([type="number"]):not([type="date"]):not([type="datetime-local"]):not([type="time"]):not([type="month"]):not([type="week"]):not([type="color"]):not([type="range"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([data-preserve-case="true"]),
+textarea:not([data-preserve-case="true"]) {
+  text-transform: uppercase;
+}
+
+input::placeholder,
+textarea::placeholder {
+  text-transform: none;
+}
+
 @media print {
   /* Hide non-printable controls and background layers */
   .print\:hidden {

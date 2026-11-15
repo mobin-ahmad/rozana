@@ -190,14 +190,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const updatedPerms = defaultPermissionsByRole(newRole);
     let defaultDesignation = formData.designation;
     if (!editingUserId) {
-      if (newRole === 'admin') defaultDesignation = 'Organization Admin';
-      else if (newRole === 'manager') defaultDesignation = 'Branch Manager';
-      else if (newRole === 'cashier') defaultDesignation = 'POS Cashier';
-      else if (newRole === 'salesperson') defaultDesignation = 'Retail Salesperson';
-      else if (newRole === 'inventory_manager') defaultDesignation = 'Inventory Manager';
-      else if (newRole === 'purchase_manager') defaultDesignation = 'Purchase Manager';
-      else if (newRole === 'accountant') defaultDesignation = 'Accountant';
-      else if (newRole === 'warehouse_staff') defaultDesignation = 'Warehouse Staff';
+      if (newRole === 'admin') defaultDesignation = 'ORGANIZATION ADMIN';
+      else if (newRole === 'manager') defaultDesignation = 'BRANCH MANAGER';
+      else if (newRole === 'cashier') defaultDesignation = 'POS CASHIER';
+      else if (newRole === 'salesperson') defaultDesignation = 'RETAIL SALESPERSON';
+      else if (newRole === 'inventory_manager') defaultDesignation = 'INVENTORY MANAGER';
+      else if (newRole === 'purchase_manager') defaultDesignation = 'PURCHASE MANAGER';
+      else if (newRole === 'accountant') defaultDesignation = 'ACCOUNTANT';
+      else if (newRole === 'warehouse_staff') defaultDesignation = 'WAREHOUSE STAFF';
     }
     const matchingTemplate = orgRoles.find((r) => r.base_role === newRole);
 

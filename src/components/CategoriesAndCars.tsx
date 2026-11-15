@@ -574,15 +574,19 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   // Option 1: Export Template
   const handleExportTemplate = () => {
     if (activeTab === 'categories') {
+      const sampleGroup1 = itemGroups[0]?.group_id || 'GRP-001';
+      const sampleGroup2 = itemGroups[1]?.group_id || itemGroups[0]?.group_id || 'GRP-002';
       const templateData = [
         {
-          'Category Name': 'Hardwood Timber',
-          'Description': 'Dense structural timber species like Oak and Teak',
+          'Group / Main Category': sampleGroup1,
+          'Category Name': 'HARDWOOD TIMBER',
+          'Description': 'DENSE STRUCTURAL TIMBER SPECIES LIKE OAK AND TEAK',
           'Is Active': 'TRUE'
         },
         {
-          'Category Name': 'Softwood Timber',
-          'Description': 'Lightweight timber species like Pine and Fir',
+          'Group / Main Category': sampleGroup2,
+          'Category Name': 'SOFTWOOD TIMBER',
+          'Description': 'LIGHTWEIGHT TIMBER SPECIES LIKE PINE AND FIR',
           'Is Active': 'TRUE'
         }
       ];
@@ -652,14 +656,20 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   // Option 2: Export Excel
   const handleExportExcel = () => {
     if (activeTab === 'categories') {
-      const exportData = categories.map((c) => ({
-        'ID': c.id,
-        'Category Name': c.name,
-        'Description': c.description || '',
-        'Status': c.is_active ? 'Active' : 'Inactive',
-        'Created By': getUserName(c.created_by),
-        'Created At': new Date(c.created_at).toLocaleString(),
-      }));
+      const exportData = categories.map((c) => {
+        const parentGroup = itemGroups.find(
+          (g) => Number(g.id) === Number(c.item_group_id) || g.group_id.toLowerCase() === String(c.item_group_id || '').toLowerCase()
+        );
+        return {
+          'ID': c.id,
+          'Group / Main Category': parentGroup ? parentGroup.group_id : c.item_group_id || '',
+          'Category Name': c.name,
+          'Description': c.description || '',
+          'Status': c.is_active ? 'ACTIVE' : 'INACTIVE',
+          'Created By': getUserName(c.created_by),
+          'Created At': new Date(c.created_at).toLocaleString(),
+        };
+      });
       exportToExcelFile(exportData, 'Categories_Export', 'Categories');
     } else if (activeTab === 'groups') {
       const exportData = itemGroups.map((g) => ({
@@ -2034,7 +2044,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                     <p className="font-bold">Required & Key Columns:</p>
                     {activeTab === 'categories' && (
                       <p className="font-mono text-[11px] text-indigo-700">
-                        Category Name (required), Description, Is Active
+                        Group / Main Category (Item Group ID or Description), Category Name (required), Description, Is Active
                       </p>
                     )}
                     {activeTab === 'groups' && (
