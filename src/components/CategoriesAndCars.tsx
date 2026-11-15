@@ -18,7 +18,8 @@ import {
   Image as ImageIcon,
   RotateCcw,
   FolderOpen,
-  Award
+  Award,
+  Building2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -26,6 +27,7 @@ import {
   getItemGroups,
   getBrands,
   getItemDefinitions,
+  getSuppliers,
   getUsers,
   saveCategory,
   deleteCategory,
@@ -33,6 +35,7 @@ import {
   deleteItemGroup,
   saveBrand,
   deleteBrand,
+  saveSupplier,
   saveItemDefinition,
   deleteItemDefinition,
   bulkImportCategories,
@@ -62,8 +65,19 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const itemGroups = getItemGroups();
   const brands = getBrands();
   const itemDefinitions = getItemDefinitions();
+  const suppliers = getSuppliers();
   const users = getUsers();
   const settings = getSettings();
+
+  const DEFAULT_UOMS = ['PCS', 'CFT', 'KG', 'G', 'LTR', 'ML', 'BOX', 'CTN', 'PKT', 'Sheet', 'DOZ', 'SET', 'MTR', 'FT'];
+  const [customUoms, setCustomUoms] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('rozana_custom_uoms');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const isAdmin = userRole === 'admin';
   const isEditable = userRole === 'admin' || userRole === 'manager' || userRole === 'warehouse_staff';
@@ -92,6 +106,18 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const [brandName, setBrandName] = useState('');
   const [brandDesc, setBrandDesc] = useState('');
   const [brandIsActive, setBrandIsActive] = useState(true);
+
+  // Quick Supplier/Vendor Registration Modal
+  const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [supplierName, setSupplierName] = useState('');
+  const [supplierPhone, setSupplierPhone] = useState('');
+  const [supplierAddress, setSupplierAddress] = useState('');
+  const [supplierModalError, setSupplierModalError] = useState('');
+
+  // Quick Unit of Measure Modal
+  const [showUomModal, setShowUomModal] = useState(false);
+  const [newUomName, setNewUomName] = useState('');
+  const [uomModalError, setUomModalError] = useState('');
 
   // Item Definition Modal
   const [showItemModal, setShowItemModal] = useState(false);
@@ -127,13 +153,21 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const availableUoms = Array.from(
+    new Set([
+      ...DEFAULT_UOMS,
+      ...customUoms,
+      ...(unitOfMeasure ? [unitOfMeasure] : []),
+    ])
+  );
+
   const getUserName = (userId: number) => {
     const user = users.find((u) => u.id === userId);
     return user ? user.full_name : `User #${userId}`;
   };
 
   // --- Category Handlers ---
-  const handleOpenCatModal = (cat?: Category) => {
+  const handleOpenCatModal = (cat?: Category, presetGroupId?: string | number) => {
     if (cat) {
       setEditingCat(cat);
       setCatItemGroupId(cat.item_group_id || '');
@@ -141,7 +175,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
       setCatDesc(cat.description || '');
     } else {
       setEditingCat(null);
-      setCatItemGroupId('');
+      setCatItemGroupId(presetGroupId || '');
       setCatName('');
       setCatDesc('');
     }
@@ -151,14 +185,26 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const handleSaveCat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!catName.trim()) return;
+    const targetName = catName.trim();
     const res = saveCategory({
       id: editingCat?.id,
       item_group_id: catItemGroupId ? (isNaN(Number(catItemGroupId)) ? catItemGroupId : Number(catItemGroupId)) : undefined,
-      name: catName,
+      name: targetName,
       description: catDesc,
     });
     if (res.success) {
       setShowCatModal(false);
+      if (showItemModal && !editingCat) {
+        const createdCat = getCategories().find(
+          (c) => c.name.trim().toLowerCase() === targetName.toLowerCase()
+        );
+        if (createdCat) {
+          setItemCatId(createdCat.id);
+          if (createdCat.item_group_id) {
+            setItemGroupId(createdCat.item_group_id);
+          }
+        }
+      }
     } else {
       alert(res.message);
     }
@@ -194,14 +240,23 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
   const handleSaveGroup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupId.trim()) return;
+    const targetGroupId = groupId.trim();
     const res = saveItemGroup({
       id: editingGroup?.id,
-      group_id: groupId,
+      group_id: targetGroupId,
       group_description: groupDesc,
       is_active: groupIsActive,
     });
     if (res.success) {
       setShowGroupModal(false);
+      if (showItemModal && !editingGroup) {
+        const createdGroup = getItemGroups().find(
+          (g) => g.group_id.trim().toLowerCase() === targetGroupId.toLowerCase()
+        );
+        if (createdGroup) {
+          setItemGroupId(createdGroup.id);
+        }
+      }
     } else {
       alert(res.message);
     }
@@ -242,18 +297,96 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
       alert('Brand Name is required');
       return;
     }
+    const targetBrandName = brandName.trim();
     const res = saveBrand({
       id: editingBrand?.id,
       code: brandCode,
-      name: brandName,
+      name: targetBrandName,
       description: brandDesc,
       is_active: brandIsActive,
     });
     if (res.success) {
       setShowBrandModal(false);
+      if (showItemModal && !editingBrand) {
+        const createdBrand = getBrands().find(
+          (b) => b.name.trim().toLowerCase() === targetBrandName.toLowerCase()
+        );
+        if (createdBrand) {
+          setItemBrandId(createdBrand.id);
+        }
+      }
     } else {
       alert(res.message);
     }
+  };
+
+  // --- Quick Supplier/Vendor Registration Handlers ---
+  const handleOpenSupplierModal = () => {
+    setSupplierName('');
+    setSupplierPhone('');
+    setSupplierAddress('');
+    setSupplierModalError('');
+    setShowSupplierModal(true);
+  };
+
+  const handleSaveQuickSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = supplierName.trim();
+    if (!trimmedName) {
+      setSupplierModalError('Supplier / Vendor Name is required.');
+      return;
+    }
+    if (suppliers.some((s) => s.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
+      setSupplierModalError('A supplier/vendor with this name already exists.');
+      return;
+    }
+    const res = saveSupplier({
+      name: trimmedName,
+      phone: supplierPhone.trim(),
+      address: supplierAddress.trim(),
+    });
+    if (res.success) {
+      setSupplierModalError('');
+      setPublisherVendor(res.supplier?.name || trimmedName);
+      setShowSupplierModal(false);
+    } else {
+      setSupplierModalError(res.message);
+    }
+  };
+
+  // --- Quick Unit of Measure Registration Handlers ---
+  const handleOpenUomModal = () => {
+    setNewUomName('');
+    setUomModalError('');
+    setShowUomModal(true);
+  };
+
+  const handleSaveQuickUom = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedUom = newUomName.trim();
+    if (!trimmedUom) {
+      setUomModalError('Unit of Measure name or code is required.');
+      return;
+    }
+    const matchedExisting = availableUoms.find(
+      (u) => u.toLowerCase() === trimmedUom.toLowerCase()
+    );
+    if (matchedExisting) {
+      setUnitOfMeasure(matchedExisting);
+      setUomModalError('');
+      setShowUomModal(false);
+      return;
+    }
+    const updatedCustomUoms = [...customUoms, trimmedUom];
+    setCustomUoms(updatedCustomUoms);
+    try {
+      localStorage.setItem('rozana_custom_uoms', JSON.stringify(updatedCustomUoms));
+    } catch {
+      // Ignore storage quota errors
+    }
+    setUnitOfMeasure(trimmedUom);
+    setUomModalError('');
+    setShowUomModal(false);
   };
 
   const handleDeleteBrand = (id: number) => {
@@ -477,7 +610,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
           'Item Name': 'Teak Board 2x4',
           'National Language Item Name': 'ساگوان پٹی ۲x۴',
           'Unit of Measure': 'CFT',
-          'Publisher/Vendor': 'Global Timber Ltd',
+          'Supplier/Vendor': 'Global Timber Ltd',
           'Reorder Level': 10,
           'Reorder Qty': 50,
           'Printed Price': 3200,
@@ -552,7 +685,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
           'Item Name': item.item_name,
           'National Language Item Name': item.national_language_item_name || item.item_name_urdu || '',
           'Unit of Measure': item.unit_of_measure,
-          'Publisher/Vendor': item.publisher_vendor,
+          'Supplier/Vendor': item.publisher_vendor,
           'Reorder Level': item.reorder_level || 0,
           'Reorder Qty': item.reorder_qty || 0,
           'Printed Price': item.printed_price,
@@ -1181,206 +1314,6 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
         </div>
       )}
 
-      {/* Category Create/Edit Modal */}
-      {showCatModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <h3 className="font-bold text-base text-gray-900">
-              {editingCat ? 'Edit Category' : 'Add New Category'}
-            </h3>
-            <form onSubmit={handleSaveCat} className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Parent Item Group / Main Category</label>
-                <select
-                  value={catItemGroupId}
-                  onChange={(e) => setCatItemGroupId(e.target.value)}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-medium"
-                >
-                  <option value="">-- None (Independent Category) --</option>
-                  {itemGroups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.group_id} — {g.group_description}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-gray-400 mt-1">Select the top-level Item Group this category belongs under.</p>
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Category Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={catName}
-                  onChange={(e) => setCatName(e.target.value)}
-                  placeholder="e.g. Raw Wood / Sawn Boards"
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Description</label>
-                <textarea
-                  rows={2}
-                  value={catDesc}
-                  onChange={(e) => setCatDesc(e.target.value)}
-                  placeholder="Category details..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCatModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
-                  Save Category
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Item Group Create/Edit Modal */}
-      {showGroupModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <h3 className="font-bold text-base text-gray-900">
-              {editingGroup ? 'Edit Item Group' : 'Add New Item Group'}
-            </h3>
-            <form onSubmit={handleSaveGroup} className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Group_ID *</label>
-                <input
-                  type="text"
-                  required
-                  value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
-                  placeholder="e.g. GRP-001"
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-mono font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Group_Description</label>
-                <textarea
-                  rows={3}
-                  value={groupDesc}
-                  onChange={(e) => setGroupDesc(e.target.value)}
-                  placeholder="Describe the item group..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="groupIsActive"
-                  checked={groupIsActive}
-                  onChange={(e) => setGroupIsActive(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded"
-                />
-                <label htmlFor="groupIsActive" className="font-bold text-gray-700 cursor-pointer">
-                  Is Active
-                </label>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowGroupModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
-                  Save Item Group
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Brand Create/Edit Modal */}
-      {showBrandModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <h3 className="font-bold text-base text-gray-900 flex items-center gap-2">
-              <Award className="w-5 h-5 text-emerald-600" />
-              {editingBrand ? 'Edit Brand' : 'Add New Brand'}
-            </h3>
-            <form onSubmit={handleSaveBrand} className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Brand Code *</label>
-                <input
-                  type="text"
-                  required
-                  value={brandCode}
-                  onChange={(e) => setBrandCode(e.target.value)}
-                  placeholder="e.g. BRD-001"
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-mono font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Brand Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={brandName}
-                  onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="e.g. Al-Noor Timber, Burma Teak, Diamond Wood"
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Description / Notes</label>
-                <textarea
-                  rows={3}
-                  value={brandDesc}
-                  onChange={(e) => setBrandDesc(e.target.value)}
-                  placeholder="Brand details, manufacturer origin, quality tier..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="brandIsActive"
-                  checked={brandIsActive}
-                  onChange={(e) => setBrandIsActive(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded"
-                />
-                <label htmlFor="brandIsActive" className="font-bold text-gray-700 cursor-pointer">
-                  Is Active
-                </label>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowBrandModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
-                  Save Brand
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* SEGMENT 4: ITEM DEFINITION MODAL (Replicating exact layout from uploaded screenshot) */}
       {showItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-5 overflow-y-auto">
@@ -1466,9 +1399,9 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                         </select>
                         <button
                           type="button"
-                          onClick={() => handleOpenCatModal()}
+                          onClick={() => handleOpenCatModal(undefined, itemGroupId)}
                           title="Add Category"
-                          className="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded shrink-0"
+                          className="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded shrink-0 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1476,7 +1409,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                     </div>
                   </div>
 
-                  {/* Row 2: Brand & Publisher/Vendor */}
+                  {/* Row 2: Brand & Supplier/Vendor */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex items-center gap-2">
                       <label className="w-28 font-bold text-slate-700 shrink-0 flex items-center gap-1">
@@ -1500,7 +1433,7 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                           type="button"
                           onClick={() => handleOpenBrandModal()}
                           title="Add Brand"
-                          className="p-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded shrink-0"
+                          className="p-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded shrink-0 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1508,20 +1441,31 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <label className="w-28 font-bold text-slate-700 shrink-0">Publisher/Vendor :</label>
+                      <label className="w-28 font-bold text-slate-700 shrink-0">Supplier/Vendor</label>
                       <div className="flex items-center gap-1 flex-1">
-                        <input
-                          type="text"
+                        <select
                           value={publisherVendor}
                           onChange={(e) => setPublisherVendor(e.target.value)}
-                          placeholder="Vendor or manufacturer"
-                          className="w-full p-1.5 bg-white border border-slate-300 rounded outline-none focus:border-blue-500 text-xs"
-                        />
+                          className="w-full p-1.5 bg-white border border-slate-300 rounded outline-none focus:border-blue-500 text-xs font-medium"
+                        >
+                          <option value="">Select Supplier/Vendor...</option>
+                          {publisherVendor &&
+                            !suppliers.some(
+                              (s) => s.name.trim().toLowerCase() === publisherVendor.trim().toLowerCase()
+                            ) && (
+                              <option value={publisherVendor}>{publisherVendor}</option>
+                            )}
+                          {suppliers.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}{s.phone ? ` (${s.phone})` : ''}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
-                          onClick={() => setPublisherVendor('')}
-                          title="Clear Vendor"
-                          className="p-1 bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 rounded shrink-0"
+                          onClick={handleOpenSupplierModal}
+                          title="Register New Supplier/Vendor"
+                          className="p-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded shrink-0 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1534,18 +1478,22 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                     <div className="flex items-center gap-2">
                       <label className="w-28 font-bold text-slate-700 shrink-0">Unit of Measure</label>
                       <div className="flex items-center gap-1 flex-1">
-                        <input
-                          type="text"
+                        <select
                           value={unitOfMeasure}
                           onChange={(e) => setUnitOfMeasure(e.target.value)}
-                          placeholder="e.g. PCS, CFT, Sheet"
-                          className="w-full p-1.5 bg-white border border-slate-300 rounded outline-none focus:border-blue-500 text-xs"
-                        />
+                          className="w-full p-1.5 bg-white border border-slate-300 rounded outline-none focus:border-blue-500 text-xs font-medium"
+                        >
+                          {availableUoms.map((uom) => (
+                            <option key={uom} value={uom}>
+                              {uom}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
-                          onClick={() => setUnitOfMeasure('PCS')}
-                          title="Reset UOM"
-                          className="p-1 bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 rounded shrink-0"
+                          onClick={handleOpenUomModal}
+                          title="Add Unit of Measure"
+                          className="p-1 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 rounded shrink-0 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1966,6 +1914,378 @@ export const CategoriesAndCars: React.FC<CategoriesAndCarsProps> = ({ userRole }
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick-Create / Registration Modals rendered after Item Definition Modal with z-[60] so they always appear in front of all active screens */}
+      {/* Category Create/Edit Modal */}
+      {showCatModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-gray-900">
+                {editingCat ? 'Edit Category' : 'Add New Category'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowCatModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveCat} className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Parent Item Group / Main Category</label>
+                <select
+                  value={catItemGroupId}
+                  onChange={(e) => setCatItemGroupId(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-medium"
+                >
+                  <option value="">-- None (Independent Category) --</option>
+                  {itemGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.group_id} — {g.group_description}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">Select the top-level Item Group this category belongs under.</p>
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Category Name *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={catName}
+                  onChange={(e) => setCatName(e.target.value)}
+                  placeholder="e.g. Raw Wood / Sawn Boards"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={catDesc}
+                  onChange={(e) => setCatDesc(e.target.value)}
+                  placeholder="Category details..."
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCatModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
+                  Save Category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Item Group Create/Edit Modal */}
+      {showGroupModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-gray-900">
+                {editingGroup ? 'Edit Item Group' : 'Add New Item Group'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowGroupModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveGroup} className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Group_ID *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  placeholder="e.g. GRP-001"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Group_Description</label>
+                <textarea
+                  rows={3}
+                  value={groupDesc}
+                  onChange={(e) => setGroupDesc(e.target.value)}
+                  placeholder="Describe the item group..."
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="groupIsActive"
+                  checked={groupIsActive}
+                  onChange={(e) => setGroupIsActive(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded"
+                />
+                <label htmlFor="groupIsActive" className="font-bold text-gray-700 cursor-pointer">
+                  Is Active
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowGroupModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
+                  Save Item Group
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Brand Create/Edit Modal */}
+      {showBrandModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-gray-900 flex items-center gap-2">
+                <Award className="w-5 h-5 text-emerald-600" />
+                {editingBrand ? 'Edit Brand' : 'Add New Brand'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowBrandModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveBrand} className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Brand Code *</label>
+                <input
+                  type="text"
+                  required
+                  value={brandCode}
+                  onChange={(e) => setBrandCode(e.target.value)}
+                  placeholder="e.g. BRD-001"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Brand Name *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="e.g. Al-Noor Timber, Burma Teak, Diamond Wood"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Description / Notes</label>
+                <textarea
+                  rows={3}
+                  value={brandDesc}
+                  onChange={(e) => setBrandDesc(e.target.value)}
+                  placeholder="Brand details, manufacturer origin, quality tier..."
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="brandIsActive"
+                  checked={brandIsActive}
+                  onChange={(e) => setBrandIsActive(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded"
+                />
+                <label htmlFor="brandIsActive" className="font-bold text-gray-700 cursor-pointer">
+                  Is Active
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBrandModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
+                  Save Brand
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* New Supplier/Vendor Registration Modal */}
+      {showSupplierModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-gray-900 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-emerald-600" />
+                New Supplier / Vendor Registration
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSupplierModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {supplierModalError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                {supplierModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveQuickSupplier} className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Supplier / Vendor Name *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={supplierName}
+                  onChange={(e) => {
+                    setSupplierName(e.target.value);
+                    if (supplierModalError) setSupplierModalError('');
+                  }}
+                  placeholder="e.g. Metro Wholesale Distributors"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={supplierPhone}
+                  onChange={(e) => setSupplierPhone(e.target.value)}
+                  placeholder="e.g. 0300-1000010"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Supplier Address</label>
+                <textarea
+                  rows={2}
+                  value={supplierAddress}
+                  onChange={(e) => setSupplierAddress(e.target.value)}
+                  placeholder="Address..."
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSupplierModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
+                  Save Supplier / Vendor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Unit of Measure Registration Modal */}
+      {showUomModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-gray-900 flex items-center gap-2">
+                <Tag className="w-5 h-5 text-emerald-600" />
+                Add Unit of Measure
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowUomModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {uomModalError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                {uomModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveQuickUom} className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Unit Name / Code *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={newUomName}
+                  onChange={(e) => {
+                    setNewUomName(e.target.value);
+                    if (uomModalError) setUomModalError('');
+                  }}
+                  placeholder="e.g. BAG, ROLL, PAIR, BUNDLE"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500 font-mono font-bold"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Adds a new unit of measure and selects it for this item.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUomModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl">
+                  Save UOM
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

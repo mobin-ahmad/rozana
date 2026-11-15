@@ -2678,7 +2678,7 @@ export function bulkImportItemDefinitions(rows: any[]): { success: boolean; mess
       national_language_item_name: natLangName,
       item_name_urdu: natLangName,
       unit_of_measure: String(r['Unit of Measure'] || r['unit_of_measure'] || 'PCS'),
-      publisher_vendor: String(r['Publisher/Vendor'] || r['publisher_vendor'] || ''),
+      publisher_vendor: String(r['Supplier/Vendor'] || r['Publisher/Vendor'] || r['publisher_vendor'] || ''),
       image_url: String(r['Image URL'] || r['image_url'] || ''),
       reorder_level: Number(r['Reorder Level'] || r['reorder_level'] || 0),
       reorder_qty: Number(r['Reorder Qty'] || r['reorder_qty'] || 0),
