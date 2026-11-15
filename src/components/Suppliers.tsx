@@ -16,7 +16,8 @@ import {
   getPayments,
   saveSupplier,
   recordPayment,
-  getSettings
+  getSettings,
+  getCurrentUser
 } from '../lib/storage';
 import { Supplier, UserRole } from '../types';
 import { formatCurrency } from '../lib/cft';
@@ -50,8 +51,15 @@ export const Suppliers: React.FC<SuppliersProps> = ({ userRole }) => {
   const [payRef, setPayRef] = useState('');
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'payable' | 'paid' | 'awaiting_po' | 'no_orders'>('all');
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const isEditable = userRole === 'admin' || userRole === 'manager';
+  const currentUser = getCurrentUser();
+  const isEditable =
+    userRole === 'admin' ||
+    userRole === 'manager' ||
+    userRole === 'purchase_manager' ||
+    userRole === 'inventory_manager' ||
+    Boolean(currentUser?.permissions?.suppliers_manage);
 
   const handleOpenModal = (supp?: Supplier) => {
     if (supp) {
@@ -80,9 +88,10 @@ export const Suppliers: React.FC<SuppliersProps> = ({ userRole }) => {
     });
 
     if (res.success) {
+      setActionError(null);
       setShowModal(false);
     } else {
-      alert(res.message);
+      setActionError(res.message);
     }
   };
 
@@ -101,6 +110,7 @@ export const Suppliers: React.FC<SuppliersProps> = ({ userRole }) => {
     });
 
     if (res.success) {
+      setActionError(null);
       setShowPayModal(false);
       setPayAmount(0);
       setPayRef('');
@@ -108,7 +118,7 @@ export const Suppliers: React.FC<SuppliersProps> = ({ userRole }) => {
       const updated = getSuppliers().find((s) => s.id === selectedSupplier.id);
       if (updated) setSelectedSupplier(updated);
     } else {
-      alert(res.message);
+      setActionError(res.message);
     }
   };
 
@@ -175,6 +185,14 @@ export const Suppliers: React.FC<SuppliersProps> = ({ userRole }) => {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      {actionError && (
+        <div className="flex items-center justify-between gap-2 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-2.5 rounded-xl text-xs font-bold">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="text-rose-500 hover:text-rose-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
         <div>

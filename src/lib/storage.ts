@@ -185,7 +185,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     max_users: 10,
     max_pos_terminals: 2,
     storage_limit_mb: 500,
-    available_modules: ['dashboard', 'pos', 'inventory', 'sales', 'customers', 'organization', 'users'],
+    available_modules: ['dashboard', 'pos', 'inventory', 'purchases', 'sales', 'customers', 'suppliers', 'payments', 'organization', 'users'],
     status: 'active',
     created_at: '2026-01-01T00:00:00.000Z',
   },
@@ -295,6 +295,25 @@ export const INITIAL_STORE_CHAINS: StoreChain[] = [
 
 export const DEFAULT_STORE_CHAIN: StoreChain = INITIAL_STORE_CHAINS[0];
 
+function normalizeSubscriptionPlanList(plans: SubscriptionPlan[]): { plans: SubscriptionPlan[]; changed: boolean } {
+  let changed = false;
+  const requiredFreeModules = ['purchases', 'suppliers', 'payments'];
+  const normalized = plans.map((p) => {
+    if (p && p.id === 'plan-free' && !p.updated_at && Array.isArray(p.available_modules)) {
+      const missing = requiredFreeModules.filter((m) => !p.available_modules.includes(m));
+      if (missing.length > 0) {
+        changed = true;
+        return {
+          ...p,
+          available_modules: Array.from(new Set([...p.available_modules, ...missing])),
+        };
+      }
+    }
+    return p;
+  });
+  return { plans: normalized, changed };
+}
+
 // Subscription Plans Management (Global)
 export function getSubscriptionPlans(): SubscriptionPlan[] {
   try {
@@ -308,7 +327,15 @@ export function getSubscriptionPlans(): SubscriptionPlan[] {
       localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(DEFAULT_SUBSCRIPTION_PLANS));
       return DEFAULT_SUBSCRIPTION_PLANS;
     }
-    return parsed;
+    const { plans: normalized, changed } = normalizeSubscriptionPlanList(parsed);
+    if (changed) {
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalized));
+      const freePlan = normalized.find((p) => p.id === 'plan-free');
+      if (freePlan) {
+        pgSync(TABLE_NAMES.SUBSCRIPTION_PLANS, 'chain-default', freePlan);
+      }
+    }
+    return normalized;
   } catch {
     return DEFAULT_SUBSCRIPTION_PLANS;
   }
@@ -367,7 +394,7 @@ export function saveSubscriptionPlan(
     available_modules:
       Array.isArray(planData.available_modules) && planData.available_modules.length > 0
         ? planData.available_modules
-        : ['dashboard', 'pos', 'inventory', 'sales', 'customers', 'organization', 'users'],
+        : ['dashboard', 'pos', 'inventory', 'purchases', 'sales', 'customers', 'suppliers', 'payments', 'organization', 'users'],
     status: planData.status || 'active',
     created_at: new Date().toISOString(),
   };
@@ -1423,9 +1450,36 @@ export function setIsAuthenticated(auth: boolean): void {
   notifyStorageChange();
 }
 
+export function normalizeUserRecord(user: User): User {
+  if (!user || typeof user !== 'object') return user;
+  const roleDefaults = defaultPermissionsByRole(user.role || 'cashier');
+  const existingPerms = user.permissions && typeof user.permissions === 'object' ? user.permissions : undefined;
+  const mergedPerms: UserPermissions = {
+    ...roleDefaults,
+    ...(existingPerms || {}),
+  };
+  // Heal legacy admin accounts or users created before suppliers_manage checkbox existed in UserManagement
+  if (user.is_super_admin || user.role === 'admin') {
+    mergedPerms.suppliers_manage = true;
+    mergedPerms.purchases_manage = true;
+  } else if (
+    existingPerms &&
+    existingPerms.purchases_manage === true &&
+    existingPerms.suppliers_manage === false &&
+    !user.updated_at &&
+    ['manager', 'inventory_manager', 'purchase_manager', 'warehouse_staff', 'accountant'].includes(user.role)
+  ) {
+    mergedPerms.suppliers_manage = true;
+  }
+  return {
+    ...user,
+    permissions: mergedPerms,
+  };
+}
+
 export function getCurrentUser(): User {
   initializeStorageIfNeeded();
-  return getStoredItem<User>(STORAGE_KEYS.CURRENT_USER, initialUsers[0]);
+  return normalizeUserRecord(getStoredItem<User>(STORAGE_KEYS.CURRENT_USER, initialUsers[0]));
 }
 
 export function setCurrentUser(user: User): void {
@@ -1814,7 +1868,11 @@ export function getRoles(chainId?: string): RoleDefinition[] {
       localStorage.setItem(key, JSON.stringify(seeded));
       return seeded;
     }
-    return parsed;
+    return parsed.map((r: RoleDefinition) => ({
+      ...r,
+      permissions: { ...defaultPermissionsByRole(r.base_role || 'cashier'), ...(r.permissions || {}) },
+      matrix: { ...createMatrixForRole(r.base_role || 'cashier'), ...(r.matrix || {}) },
+    }));
   } catch {
     return buildDefaultRolesForOrg(targetChainId);
   }
@@ -1912,7 +1970,7 @@ export function getOrganizationUsers(chainId: string): User[] {
     let list: User[] = raw ? JSON.parse(raw) : chainId === 'chain-default' ? initialUsers : [];
     if (!Array.isArray(list)) list = [];
     // Exclude Global Super Admin from organization employee seat counts
-    return list.filter((u) => u && !isUserSuperAdmin(u));
+    return list.filter((u) => u && !isUserSuperAdmin(u)).map(normalizeUserRecord);
   } catch {
     return [];
   }
@@ -2026,11 +2084,11 @@ export function getUsers(): User[] {
   if (activeChainId === 'chain-default') {
     const hasMobin = safeUsers.some((u) => (u?.username || '').toLowerCase() === 'mobin');
     if (!hasMobin) {
-      const updated = [MOBIN_SUPER_ADMIN, ...safeUsers];
+      const updated = [MOBIN_SUPER_ADMIN, ...safeUsers].map(normalizeUserRecord);
       setStoredItem(STORAGE_KEYS.USERS, updated);
       return updated;
     }
-    return safeUsers;
+    return safeUsers.map(normalizeUserRecord);
   } else {
     // In any other tenant, MOBIN_SUPER_ADMIN should NEVER be stored or returned as a tenant employee!
     const cleanUsers = safeUsers.filter(
@@ -2043,7 +2101,7 @@ export function getUsers(): User[] {
     if (cleanUsers.length !== safeUsers.length) {
       setStoredItem(STORAGE_KEYS.USERS, cleanUsers);
     }
-    return cleanUsers;
+    return cleanUsers.map(normalizeUserRecord);
   }
 }
 
@@ -4095,9 +4153,10 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || undefined,
       }));
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(mapped));
+      const { plans: normalizedPlans } = normalizeSubscriptionPlanList(mapped);
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalizedPlans));
       syncedTables++;
-      totalRows += mapped.length;
+      totalRows += normalizedPlans.length;
     }
 
     if (Array.isArray(snapshot.STORE_CHAINS) && snapshot.STORE_CHAINS.length > 0) {
@@ -4213,9 +4272,10 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           permissions: r.permissions && typeof r.permissions === 'object' ? r.permissions : defaultPermissionsByRole(r.role || 'cashier'),
           last_login: r.last_login || undefined,
           created_at: r.created_at || new Date().toISOString(),
+          updated_at: r.updated_at || undefined,
         }));
       if (chainUsers.length > 0) {
-        setStoredItem(STORAGE_KEYS.USERS, chainUsers);
+        setStoredItem(STORAGE_KEYS.USERS, chainUsers.map(normalizeUserRecord));
         syncedTables++;
         totalRows += chainUsers.length;
       }

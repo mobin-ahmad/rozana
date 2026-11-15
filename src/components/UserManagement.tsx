@@ -756,6 +756,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                           {perms.inventory_manage && (
                             <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-bold rounded">Inventory</span>
                           )}
+                          {perms.purchases_manage && (
+                            <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-bold rounded">Purchases</span>
+                          )}
+                          {perms.suppliers_manage && (
+                            <span className="px-1.5 py-0.5 bg-teal-50 text-teal-700 text-[9px] font-bold rounded">Suppliers</span>
+                          )}
+                          {perms.customers_manage && (
+                            <span className="px-1.5 py-0.5 bg-cyan-50 text-cyan-700 text-[9px] font-bold rounded">Customers</span>
+                          )}
                           {perms.expenses_manage && (
                             <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-bold rounded">Finance</span>
                           )}
@@ -921,6 +930,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       {perms.inventory_manage && (
                         <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold rounded-md">
                           Inventory
+                        </span>
+                      )}
+                      {perms.purchases_manage && (
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-bold rounded-md">
+                          Purchases
+                        </span>
+                      )}
+                      {perms.suppliers_manage && (
+                        <span className="px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-bold rounded-md">
+                          Suppliers
                         </span>
                       )}
                       {perms.expenses_manage && (
@@ -1305,7 +1324,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             onChange={() => handleTogglePermission('purchases_manage')}
                             className="w-4 h-4 text-indigo-600 rounded"
                           />
-                          <span className="font-semibold text-slate-700">Manage Purchases & Suppliers</span>
+                          <span className="font-semibold text-slate-700">Manage Purchases (Stock-In)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.permissions?.suppliers_manage || false}
+                            onChange={() => handleTogglePermission('suppliers_manage')}
+                            className="w-4 h-4 text-indigo-600 rounded"
+                          />
+                          <span className="font-semibold text-slate-700">Manage Suppliers & Vendors Directory</span>
                         </label>
                       </div>
 

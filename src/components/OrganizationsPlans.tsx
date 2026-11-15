@@ -178,7 +178,7 @@ export const OrganizationsPlans: React.FC<OrganizationsPlansProps> = ({
     max_users: 25,
     max_pos_terminals: 5,
     storage_limit_mb: 2048,
-    available_modules: ['dashboard', 'pos', 'inventory', 'sales', 'customers', 'organization', 'users'] as string[],
+    available_modules: ['dashboard', 'pos', 'inventory', 'purchases', 'sales', 'customers', 'suppliers', 'payments', 'organization', 'users'] as string[],
     status: 'active' as 'active' | 'inactive',
   });
 

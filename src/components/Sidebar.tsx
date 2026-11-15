@@ -81,25 +81,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'dashboard':
         return true;
       case 'zpos':
-        return perms ? perms.pos_billing : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? (perms.pos_billing ?? item.roles.includes(userRole)) : item.roles.includes(userRole));
       case 'categories':
-        return perms ? perms.inventory_view || perms.inventory_manage : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? Boolean(perms.inventory_view || perms.inventory_manage) : item.roles.includes(userRole));
       case 'purchases':
-        return perms ? perms.purchases_manage : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? (perms.purchases_manage ?? item.roles.includes(userRole)) : item.roles.includes(userRole));
       case 'customers':
-        return perms ? perms.customers_manage : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? (perms.customers_manage ?? item.roles.includes(userRole)) : item.roles.includes(userRole));
       case 'suppliers':
-        return perms ? perms.suppliers_manage : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? (perms.suppliers_manage ?? item.roles.includes(userRole)) : item.roles.includes(userRole));
       case 'sales':
-        return perms ? perms.sales_view || perms.pos_billing : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? Boolean(perms.sales_view || perms.pos_billing) : item.roles.includes(userRole));
       case 'payments':
-        return perms
-          ? perms.customers_manage || perms.suppliers_manage || perms.expenses_manage
-          : item.roles.includes(userRole);
+        return (
+          userRole === 'admin' ||
+          (perms
+            ? Boolean(perms.customers_manage || perms.suppliers_manage || perms.expenses_manage)
+            : item.roles.includes(userRole))
+        );
       case 'expenses':
-        return perms ? perms.expenses_manage : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? (perms.expenses_manage ?? item.roles.includes(userRole)) : item.roles.includes(userRole));
       case 'reports':
-        return perms ? perms.reports_view : item.roles.includes(userRole);
+        return userRole === 'admin' || (perms ? (perms.reports_view ?? item.roles.includes(userRole)) : item.roles.includes(userRole));
       case 'org-management':
         return (
           userRole === 'admin' ||

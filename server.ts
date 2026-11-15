@@ -319,7 +319,7 @@ async function ensureMultiTenantSchema(client: pkg.PoolClient): Promise<void> {
         max_users INT NOT NULL DEFAULT 5,
         max_pos_terminals INT NOT NULL DEFAULT 2,
         storage_limit_mb INT DEFAULT 1024,
-        available_modules JSONB DEFAULT '["dashboard","pos","inventory","sales","customers","payments"]'::jsonb,
+        available_modules JSONB DEFAULT '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","organization","users"]'::jsonb,
         status VARCHAR(32) NOT NULL DEFAULT 'active',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -441,6 +441,23 @@ async function ensureMultiTenantSchema(client: pkg.PoolClient): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS "uq_sales_chain_inv" ON "SALES"(COALESCE(chain_id, 'chain-default'), invoice_no);
       CREATE UNIQUE INDEX IF NOT EXISTS "uq_users_chain_username" ON "USERS"(COALESCE(chain_id, '__global__'), LOWER(username));
       CREATE UNIQUE INDEX IF NOT EXISTS "uq_item_defs_chain_barcode_nonempty" ON "ITEM_DEFINITIONS"(COALESCE(chain_id, 'chain-default'), barcode) WHERE barcode IS NOT NULL AND barcode <> '';
+
+      -- Ensure uncustomized Free Plan includes suppliers, purchases, and payments
+      UPDATE "SUBSCRIPTION_PLANS"
+      SET available_modules = '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","organization","users"]'::jsonb
+      WHERE id = 'plan-free'
+        AND NOT (available_modules ? 'suppliers')
+        AND updated_at IS NULL;
+
+      -- Ensure existing admin/manager/purchasing/inventory/accountant users do not remain locked out of Suppliers by column defaults
+      UPDATE "USERS"
+      SET permissions = jsonb_set(COALESCE(permissions, '{}'::jsonb), '{suppliers_manage}', 'true'::jsonb, true)
+      WHERE role IN ('admin', 'manager', 'inventory_manager', 'purchase_manager', 'warehouse_staff', 'accountant')
+        AND (
+          (permissions->>'suppliers_manage') IS NULL
+          OR (role = 'admin' AND (permissions->>'suppliers_manage') = 'false')
+          OR ((permissions->>'purchases_manage') = 'true' AND (permissions->>'suppliers_manage') = 'false' AND updated_at IS NULL)
+        );
     `);
     tableColumnsCache.clear();
   } catch (err) {

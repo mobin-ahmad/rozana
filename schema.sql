@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "SUBSCRIPTION_PLANS" (
     max_users INT NOT NULL DEFAULT 5,
     max_pos_terminals INT NOT NULL DEFAULT 2,
     storage_limit_mb INT DEFAULT 1024,
-    available_modules JSONB DEFAULT '["dashboard","pos","inventory","sales","customers","payments"]'::jsonb,
+    available_modules JSONB DEFAULT '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","organization","users"]'::jsonb,
     status VARCHAR(32) NOT NULL DEFAULT 'active', -- active, inactive
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -460,7 +460,7 @@ ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
 -- Subscription Plans
 INSERT INTO "SUBSCRIPTION_PLANS" (id, name, description, monthly_price, annual_price, max_branches, max_users, max_pos_terminals, storage_limit_mb, available_modules, status)
 VALUES
-('plan-free', 'Free', 'Evaluation tier for single-outlet retail shops', 0.00, 0.00, 3, 10, 2, 512, '["dashboard","pos","inventory","sales","customers","payments"]', 'active'),
+('plan-free', 'Free', 'Evaluation tier for single-outlet retail shops', 0.00, 0.00, 3, 10, 2, 512, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","organization","users"]', 'active'),
 ('plan-starter', 'Starter', 'Essential retail POS for growing local businesses', 4900.00, 49000.00, 5, 15, 5, 2048, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses"]', 'active'),
 ('plan-growth', 'Growth', 'Multi-branch retail chain operations with full analytics', 12500.00, 125000.00, 15, 50, 20, 10240, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses","reports","organization","users","audit_logs"]', 'active'),
 ('plan-enterprise', 'Enterprise', 'Unlimited-scale corporate chains, custom roles & full ERP', 29000.00, 290000.00, 100, 500, 100, 102400, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses","reports","organization","users","settings","audit_logs"]', 'active')
