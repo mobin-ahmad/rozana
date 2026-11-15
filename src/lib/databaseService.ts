@@ -1,17 +1,21 @@
-import { TABLE_NAMES, TableName, getActiveChainId, getCurrentUser, isUserSuperAdmin, getSettings } from './storage';
+import { TableName, getActiveChainId, getCurrentUser, isUserSuperAdmin, getSettings } from './storage';
 
 function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const user = getCurrentUser();
-  const chainId = getActiveChainId();
-  const settings = getSettings();
-  return {
-    'x-rozana-chain-id': chainId || 'chain-default',
-    'x-rozana-branch-id': settings?.active_branch_id || '',
-    'x-rozana-user-id': String(user?.id || 1),
-    'x-rozana-role': user?.role || 'cashier',
-    'x-rozana-super-admin': isUserSuperAdmin(user) ? 'true' : 'false',
-    ...(extra || {}),
-  };
+  try {
+    const user = getCurrentUser();
+    const chainId = getActiveChainId();
+    const settings = getSettings();
+    return {
+      'x-rozana-chain-id': chainId || 'chain-default',
+      'x-rozana-branch-id': settings?.active_branch_id || '',
+      'x-rozana-user-id': String(user?.id || 1),
+      'x-rozana-role': user?.role || 'cashier',
+      'x-rozana-super-admin': isUserSuperAdmin(user) ? 'true' : 'false',
+      ...(extra || {}),
+    };
+  } catch {
+    return { ...(extra || {}) };
+  }
 }
 
 export interface DbConnectionStatus {
@@ -31,8 +35,23 @@ export interface DbConnectionStatus {
   timestamp: string;
 }
 
+export interface SyncBatchItem {
+  table: string;
+  chainId: string;
+  record: Record<string, unknown>;
+}
+
 type StatusListener = (status: DbConnectionStatus) => void;
 const listeners: Set<StatusListener> = new Set();
+
+let hasCheckedStatus = false;
+let syncQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueSync<T>(task: () => Promise<T>): Promise<T> {
+  const next = syncQueue.then(task, task);
+  syncQueue = next.catch(() => undefined);
+  return next;
+}
 
 let lastStatus: DbConnectionStatus = {
   connected: false,
@@ -57,6 +76,7 @@ export const databaseService = {
   },
 
   notify(status: DbConnectionStatus) {
+    hasCheckedStatus = true;
     lastStatus = status;
     listeners.forEach((fn) => fn(status));
   },
@@ -170,6 +190,110 @@ export const databaseService = {
     } catch {
       return false;
     }
+  },
+
+  syncRecord(
+    tableName: TableName | string,
+    chainId: string,
+    record: Record<string, unknown>
+  ): Promise<boolean> {
+    if (hasCheckedStatus && !lastStatus.connected) {
+      return Promise.resolve(false);
+    }
+    const upperTable = String(tableName).toUpperCase();
+    return enqueueSync(async () => {
+      try {
+        const res = await fetch('/api/db/sync-record', {
+          method: 'POST',
+          headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            table: upperTable,
+            chainId: chainId || 'chain-default',
+            record,
+          }),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    });
+  },
+
+  deleteRecordSync(
+    tableName: TableName | string,
+    chainId: string,
+    id: string | number
+  ): Promise<boolean> {
+    if (hasCheckedStatus && !lastStatus.connected) {
+      return Promise.resolve(false);
+    }
+    const upperTable = String(tableName).toUpperCase();
+    return enqueueSync(async () => {
+      try {
+        const res = await fetch('/api/db/delete-record', {
+          method: 'POST',
+          headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            table: upperTable,
+            chainId: chainId || 'chain-default',
+            id,
+          }),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    });
+  },
+
+  syncBatch(
+    items: SyncBatchItem[]
+  ): Promise<{ success: boolean; syncedCount: number; totalRequested?: number; errorCount?: number; error?: string }> {
+    if (!items || items.length === 0) {
+      return Promise.resolve({ success: true, syncedCount: 0, totalRequested: 0, errorCount: 0 });
+    }
+    return enqueueSync(async () => {
+      try {
+        const chunkSize = 200;
+        let totalSynced = 0;
+        let totalErrors = 0;
+
+        for (let i = 0; i < items.length; i += chunkSize) {
+          const chunk = items.slice(i, i + chunkSize);
+          const res = await fetch('/api/db/sync-batch', {
+            method: 'POST',
+            headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ items: chunk }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            return {
+              success: false,
+              syncedCount: totalSynced,
+              totalRequested: items.length,
+              errorCount: totalErrors + chunk.length,
+              error: data.error || `HTTP ${res.status}`,
+            };
+          }
+          totalSynced += Number(data.syncedCount || 0);
+          totalErrors += Number(data.errorCount || 0);
+        }
+
+        return {
+          success: true,
+          syncedCount: totalSynced,
+          totalRequested: items.length,
+          errorCount: totalErrors,
+        };
+      } catch (err: unknown) {
+        return {
+          success: false,
+          syncedCount: 0,
+          totalRequested: items.length,
+          error: (err as Error).message,
+        };
+      }
+    });
   },
 
   async pullAllFromPostgres(): Promise<Record<string, unknown[]> | null> {

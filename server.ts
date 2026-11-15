@@ -367,15 +367,446 @@ async function ensureMultiTenantSchema(client: pkg.PoolClient): Promise<void> {
       ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS branch_type VARCHAR(64) DEFAULT 'retail_outlet';
       ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS contact_person VARCHAR(255);
       ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS manager_user_id INT;
+      ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS manager_name VARCHAR(255);
       ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active';
       ALTER TABLE "BRANCHES" ADD COLUMN IF NOT EXISTS opening_date DATE DEFAULT CURRENT_DATE;
       ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS custom_role_id VARCHAR(64);
       ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS assigned_branches JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS account_status VARCHAR(32) DEFAULT 'active';
+      ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS brand_name VARCHAR(255);
+      ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS item_name_urdu VARCHAR(255);
+      ALTER TABLE "CUSTOMERS" ADD COLUMN IF NOT EXISTS custom_scan_behavior VARCHAR(64);
+      ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+      ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS sub_category_id INT;
+      ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS total_pieces INT DEFAULT 1;
+      ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS total_cft NUMERIC(14, 4) DEFAULT 0;
+      ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS rate_per_cft NUMERIC(14, 2) DEFAULT 0;
+      ALTER TABLE "SALES" ADD COLUMN IF NOT EXISTS total_cft NUMERIC(14, 4) DEFAULT 0;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS wood_stock_id INT;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS serial VARCHAR(128);
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS width NUMERIC(10, 2) DEFAULT 0;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS length NUMERIC(10, 2) DEFAULT 0;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS cft NUMERIC(14, 4) DEFAULT 0;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS qty INT DEFAULT 1;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS rate NUMERIC(14, 2) DEFAULT 0;
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS line_total NUMERIC(14, 2) DEFAULT 0;
+      ALTER TABLE "PAYMENTS" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+      ALTER TABLE "EXPENSES" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+      ALTER TABLE "CUSTOMERS" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+      ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS branch_id VARCHAR(64);
+      ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS organization_id VARCHAR(64);
+      ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS organization_name VARCHAR(255);
+      ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS branch_name VARCHAR(255);
+
+      -- Multi-tenant client_ref support for collision-free SERIAL primary keys across tenants
+      ALTER TABLE "USERS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "ITEM_GROUPS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "CATEGORIES" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "BRANDS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "ITEM_DEFINITIONS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "CUSTOMERS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "SUPPLIERS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "PURCHASES" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "SALES" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "SALE_ITEMS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "PAYMENTS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "EXPENSES" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+      ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_users_client_ref" ON "USERS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_item_groups_client_ref" ON "ITEM_GROUPS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_categories_client_ref" ON "CATEGORIES"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_brands_client_ref" ON "BRANDS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_item_defs_client_ref" ON "ITEM_DEFINITIONS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_customers_client_ref" ON "CUSTOMERS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_suppliers_client_ref" ON "SUPPLIERS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_purchases_client_ref" ON "PURCHASES"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_sales_client_ref" ON "SALES"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_sale_items_client_ref" ON "SALE_ITEMS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_payments_client_ref" ON "PAYMENTS"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_expenses_client_ref" ON "EXPENSES"(client_ref) WHERE client_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_activity_logs_client_ref" ON "ACTIVITY_LOGS"(client_ref) WHERE client_ref IS NOT NULL;
+
+      -- Scope uniqueness per organization rather than globally across all tenants
+      ALTER TABLE "ITEM_GROUPS" DROP CONSTRAINT IF EXISTS "ITEM_GROUPS_group_id_key";
+      ALTER TABLE "BRANDS" DROP CONSTRAINT IF EXISTS "BRANDS_code_key";
+      ALTER TABLE "PURCHASES" DROP CONSTRAINT IF EXISTS "PURCHASES_purchase_no_key";
+      ALTER TABLE "SALES" DROP CONSTRAINT IF EXISTS "SALES_invoice_no_key";
+      ALTER TABLE "USERS" DROP CONSTRAINT IF EXISTS "USERS_username_key";
+      ALTER TABLE "ITEM_DEFINITIONS" DROP CONSTRAINT IF EXISTS "uq_chain_barcode";
+
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_item_groups_chain_gid" ON "ITEM_GROUPS"(COALESCE(chain_id, 'chain-default'), LOWER(group_id));
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_brands_chain_code" ON "BRANDS"(COALESCE(chain_id, 'chain-default'), LOWER(code));
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_purchases_chain_no" ON "PURCHASES"(COALESCE(chain_id, 'chain-default'), purchase_no);
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_sales_chain_inv" ON "SALES"(COALESCE(chain_id, 'chain-default'), invoice_no);
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_users_chain_username" ON "USERS"(COALESCE(chain_id, '__global__'), LOWER(username));
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_item_defs_chain_barcode_nonempty" ON "ITEM_DEFINITIONS"(COALESCE(chain_id, 'chain-default'), barcode) WHERE barcode IS NOT NULL AND barcode <> '';
     `);
+    tableColumnsCache.clear();
   } catch (err) {
     console.warn('[rozana Schema Migration Notice]', (err as Error).message);
   }
+}
+
+const STRING_PK_TABLES = new Set([
+  'SUBSCRIPTION_PLANS',
+  'STORE_CHAINS',
+  'BRANCHES',
+  'ROLES',
+  'SUBSCRIPTION_HISTORY',
+]);
+
+const JSONB_COLUMNS = new Set([
+  'available_modules',
+  'permissions',
+  'matrix',
+  'assigned_branches',
+]);
+
+const tableColumnsCache = new Map<string, Map<string, string>>();
+
+async function getTableColumns(
+  client: pkg.PoolClient | pkg.Pool,
+  tableName: string
+): Promise<Map<string, string>> {
+  const cached = tableColumnsCache.get(tableName);
+  if (cached) return cached;
+  const res = await client.query(
+    `SELECT column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName]
+  );
+  const map = new Map<string, string>();
+  for (const row of res.rows) {
+    map.set(row.column_name, row.data_type);
+  }
+  if (map.size > 0) {
+    tableColumnsCache.set(tableName, map);
+  }
+  return map;
+}
+
+async function resolveSerialFkId(
+  client: pkg.PoolClient | pkg.Pool,
+  parentTable: string,
+  chainId: string,
+  rawVal: unknown
+): Promise<number | null> {
+  if (rawVal === null || rawVal === undefined || rawVal === '') return null;
+  const strVal = String(rawVal).trim();
+  if (!strVal) return null;
+
+  const clientRef = `${chainId || 'chain-default'}::${strVal}`;
+  try {
+    const refRes = await client.query(
+      `SELECT id FROM "${parentTable}" WHERE client_ref = $1 LIMIT 1`,
+      [clientRef]
+    );
+    if ((refRes.rowCount ?? 0) > 0) {
+      return Number(refRes.rows[0].id);
+    }
+    const parsed = Number(strVal);
+    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 2147483647) {
+      const idRes = await client.query(
+        `SELECT id FROM "${parentTable}" WHERE id = $1 LIMIT 1`,
+        [parsed]
+      );
+      if ((idRes.rowCount ?? 0) > 0) {
+        return Number(idRes.rows[0].id);
+      }
+    }
+  } catch {
+    // ignore lookup error and fall back to null so parent FK does not reject insert
+  }
+  return null;
+}
+
+async function syncRecordToDb(
+  client: pkg.PoolClient | pkg.Pool,
+  rawTableInput: string,
+  chainIdInput: string,
+  rawRecord: Record<string, unknown>
+): Promise<unknown> {
+  const table = String(rawTableInput || '').toUpperCase();
+  if (!ALLOWED_TABLES.has(table)) {
+    throw new Error(`Table '${table}' is not allowed.`);
+  }
+  const columnsMap = await getTableColumns(client, table);
+  if (columnsMap.size === 0) {
+    throw new Error(`Table '${table}' does not exist in PostgreSQL.`);
+  }
+
+  const effectiveChainId = String(
+    chainIdInput || rawRecord.chain_id || rawRecord.organization_id || 'chain-default'
+  ).trim();
+
+  const normalized: Record<string, unknown> = { ...rawRecord };
+
+  // Map TS aliases -> PostgreSQL schema column names
+  if (TENANT_SCOPED_TABLES.has(table) && !normalized.chain_id) {
+    if (table === 'USERS' && normalized.is_super_admin === true) {
+      normalized.chain_id = null;
+    } else {
+      normalized.chain_id = effectiveChainId;
+    }
+  }
+  if (table === 'USERS') {
+    if (normalized.password && !normalized.password_hash) {
+      normalized.password_hash = normalized.password;
+    }
+    if (!normalized.password_hash) {
+      normalized.password_hash = normalized.pos_pin ? String(normalized.pos_pin) : '1234';
+    }
+    if (!normalized.email) {
+      normalized.email = `${String(normalized.username || 'user').toLowerCase()}@rozana.pos`;
+    }
+  }
+  if (table === 'SALE_ITEMS') {
+    if (normalized.quantity === undefined && normalized.qty !== undefined) {
+      normalized.quantity = normalized.qty;
+    }
+    if (normalized.unit_price === undefined && normalized.rate !== undefined) {
+      normalized.unit_price = normalized.rate;
+    }
+    if (normalized.subtotal === undefined && normalized.line_total !== undefined) {
+      normalized.subtotal = normalized.line_total;
+    }
+    if (!normalized.sku) {
+      normalized.sku = String(normalized.serial || 'RETAIL');
+    }
+    if (!normalized.description) {
+      normalized.description = String(normalized.sku || 'Item');
+    }
+    if (normalized.serial_no === undefined && normalized.serial !== undefined) {
+      normalized.serial_no = normalized.serial;
+    }
+    if (normalized.item_def_id === undefined && normalized.wood_stock_id !== undefined) {
+      normalized.item_def_id = normalized.wood_stock_id;
+    }
+  }
+  if (table === 'PURCHASES') {
+    if (normalized.unit_cost === undefined && normalized.rate_per_cft !== undefined) {
+      normalized.unit_cost = normalized.rate_per_cft;
+    }
+    if (normalized.quantity === undefined && normalized.total_pieces !== undefined) {
+      normalized.quantity = normalized.total_pieces;
+    }
+    if (!normalized.purchase_date) {
+      normalized.purchase_date = new Date().toISOString().split('T')[0];
+    }
+  }
+
+  // Resolve foreign keys referencing SERIAL-PK tables
+  const fkLookup: Record<string, string> = {
+    item_group_id: 'ITEM_GROUPS',
+    category_id: 'CATEGORIES',
+    brand_id: 'BRANDS',
+    item_id: 'ITEM_DEFINITIONS',
+    item_def_id: 'ITEM_DEFINITIONS',
+    customer_id: 'CUSTOMERS',
+    supplier_id: 'SUPPLIERS',
+    sale_id: 'SALES',
+    purchase_id: 'PURCHASES',
+    created_by: 'USERS',
+    user_id: 'USERS',
+  };
+
+  for (const [fkCol, parentTbl] of Object.entries(fkLookup)) {
+    if (fkCol in normalized && columnsMap.has(fkCol)) {
+      normalized[fkCol] = await resolveSerialFkId(client, parentTbl, effectiveChainId, normalized[fkCol]);
+    }
+  }
+
+  // Filter & coerce payload strictly to known PostgreSQL columns
+  const cleanPayload: Record<string, unknown> = {};
+  for (const [col, dataType] of columnsMap.entries()) {
+    if (col === 'id' && !STRING_PK_TABLES.has(table)) continue;
+    if (!(col in normalized)) continue;
+    let val = normalized[col];
+    if (val === undefined) continue;
+
+    if (JSONB_COLUMNS.has(col) || dataType === 'jsonb' || dataType === 'json') {
+      val = JSON.stringify(val ?? (col === 'permissions' || col === 'matrix' ? {} : []));
+    } else if (dataType === 'integer' || dataType === 'bigint' || dataType === 'smallint') {
+      if (val === '' || val === null) {
+        val = null;
+      } else {
+        const parsed = Math.trunc(Number(val));
+        val = Number.isFinite(parsed) && parsed <= 2147483647 && parsed >= -2147483648 ? parsed : null;
+      }
+    } else if (dataType === 'numeric' || dataType === 'double precision' || dataType === 'real') {
+      if (val === '' || val === null) {
+        val = 0;
+      } else {
+        const parsed = Number(val);
+        val = Number.isFinite(parsed) ? parsed : 0;
+      }
+    } else if (dataType === 'boolean') {
+      val = Boolean(val);
+    } else if (dataType === 'date' || dataType.includes('timestamp')) {
+      if (val === '' || val === null) {
+        val = null;
+      }
+    }
+    cleanPayload[col] = val;
+  }
+
+  // Case 1: String-PK tables upsert directly on `id`
+  if (STRING_PK_TABLES.has(table)) {
+    const pkId = normalized.id;
+    if (!pkId) throw new Error(`Missing id for ${table}`);
+    cleanPayload.id = String(pkId);
+    const keys = Object.keys(cleanPayload);
+    const colsSql = keys.map((k) => `"${k}"`).join(', ');
+    const vals = keys.map((k) => cleanPayload[k]);
+    const phSql = keys.map((_, i) => `$${i + 1}`).join(', ');
+    const updateKeys = keys.filter((k) => k !== 'id');
+    const setSql =
+      updateKeys.length > 0
+        ? updateKeys.map((k) => `"${k}" = EXCLUDED."${k}"`).join(', ')
+        : `"id" = EXCLUDED."id"`;
+    const sql = `INSERT INTO "${table}" (${colsSql}) VALUES (${phSql}) ON CONFLICT (id) DO UPDATE SET ${setSql} RETURNING *`;
+    const res = await client.query(sql, vals);
+    return res.rows[0];
+  }
+
+  // Case 2: SERIAL-PK tables use (chain_id, client_ref) + natural keys to prevent cross-tenant ID collisions
+  const localId = rawRecord.id;
+  const clientRef =
+    localId !== undefined && localId !== null && localId !== ''
+      ? `${effectiveChainId}::${localId}`
+      : null;
+  if (clientRef && columnsMap.has('client_ref')) {
+    cleanPayload.client_ref = clientRef;
+  }
+
+  let existingPgId: number | null = null;
+  if (clientRef) {
+    const byRef = await client.query(`SELECT id FROM "${table}" WHERE client_ref = $1 LIMIT 1`, [clientRef]);
+    if ((byRef.rowCount ?? 0) > 0) {
+      existingPgId = Number(byRef.rows[0].id);
+    }
+  }
+
+  if (!existingPgId && table === 'USERS' && cleanPayload.username) {
+    const chainCheck = cleanPayload.chain_id ? `chain_id = $2` : `chain_id IS NULL`;
+    const params: unknown[] = cleanPayload.chain_id
+      ? [String(cleanPayload.username).toLowerCase(), cleanPayload.chain_id]
+      : [String(cleanPayload.username).toLowerCase()];
+    const byUser = await client.query(
+      `SELECT id FROM "USERS" WHERE LOWER(username) = $1 AND ${chainCheck} LIMIT 1`,
+      params
+    );
+    if ((byUser.rowCount ?? 0) > 0) {
+      existingPgId = Number(byUser.rows[0].id);
+    }
+  } else if (!existingPgId && table === 'ITEM_GROUPS' && cleanPayload.group_id) {
+    const byGrp = await client.query(
+      `SELECT id FROM "ITEM_GROUPS" WHERE COALESCE(chain_id, 'chain-default') = $1 AND LOWER(group_id) = LOWER($2) LIMIT 1`,
+      [effectiveChainId, String(cleanPayload.group_id)]
+    );
+    if ((byGrp.rowCount ?? 0) > 0) existingPgId = Number(byGrp.rows[0].id);
+  } else if (!existingPgId && table === 'BRANDS' && cleanPayload.code) {
+    const byBrd = await client.query(
+      `SELECT id FROM "BRANDS" WHERE COALESCE(chain_id, 'chain-default') = $1 AND LOWER(code) = LOWER($2) LIMIT 1`,
+      [effectiveChainId, String(cleanPayload.code)]
+    );
+    if ((byBrd.rowCount ?? 0) > 0) existingPgId = Number(byBrd.rows[0].id);
+  } else if (!existingPgId && table === 'ITEM_DEFINITIONS' && cleanPayload.item_code) {
+    const byItm = await client.query(
+      `SELECT id FROM "ITEM_DEFINITIONS" WHERE COALESCE(chain_id, 'chain-default') = $1 AND LOWER(item_code) = LOWER($2) LIMIT 1`,
+      [effectiveChainId, String(cleanPayload.item_code)]
+    );
+    if ((byItm.rowCount ?? 0) > 0) existingPgId = Number(byItm.rows[0].id);
+  } else if (!existingPgId && table === 'PURCHASES' && cleanPayload.purchase_no) {
+    const byPur = await client.query(
+      `SELECT id FROM "PURCHASES" WHERE COALESCE(chain_id, 'chain-default') = $1 AND purchase_no = $2 LIMIT 1`,
+      [effectiveChainId, String(cleanPayload.purchase_no)]
+    );
+    if ((byPur.rowCount ?? 0) > 0) existingPgId = Number(byPur.rows[0].id);
+  } else if (!existingPgId && table === 'SALES' && cleanPayload.invoice_no) {
+    const bySale = await client.query(
+      `SELECT id FROM "SALES" WHERE COALESCE(chain_id, 'chain-default') = $1 AND invoice_no = $2 LIMIT 1`,
+      [effectiveChainId, String(cleanPayload.invoice_no)]
+    );
+    if ((bySale.rowCount ?? 0) > 0) existingPgId = Number(bySale.rows[0].id);
+  } else if (
+    !existingPgId &&
+    effectiveChainId === 'chain-default' &&
+    localId !== undefined &&
+    localId !== null &&
+    Number.isInteger(Number(localId)) &&
+    Number(localId) > 0
+  ) {
+    const byDefaultId = await client.query(
+      TENANT_SCOPED_TABLES.has(table)
+        ? `SELECT id FROM "${table}" WHERE id = $1 AND (chain_id = 'chain-default' OR chain_id IS NULL) AND client_ref IS NULL LIMIT 1`
+        : `SELECT id FROM "${table}" WHERE id = $1 AND client_ref IS NULL LIMIT 1`,
+      [Number(localId)]
+    );
+    if ((byDefaultId.rowCount ?? 0) > 0) {
+      existingPgId = Number(byDefaultId.rows[0].id);
+    }
+  }
+
+  const keys = Object.keys(cleanPayload);
+  if (keys.length === 0) return null;
+
+  if (existingPgId) {
+    const setSql = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
+    const vals = keys.map((k) => cleanPayload[k]);
+    vals.push(existingPgId);
+    const res = await client.query(
+      `UPDATE "${table}" SET ${setSql} WHERE id = $${vals.length} RETURNING *`,
+      vals
+    );
+    return res.rows[0];
+  }
+
+  // Ensure PostgreSQL SERIAL sequence is caught up past existing max(id) before INSERT
+  try {
+    await client.query(
+      `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`
+    );
+  } catch {
+    // ignore if table has no sequence
+  }
+
+  const colsSql = keys.map((k) => `"${k}"`).join(', ');
+  const vals = keys.map((k) => cleanPayload[k]);
+  const phSql = keys.map((_, i) => `$${i + 1}`).join(', ');
+  const res = await client.query(`INSERT INTO "${table}" (${colsSql}) VALUES (${phSql}) RETURNING *`, vals);
+  return res.rows[0];
+}
+
+async function deleteRecordFromDb(
+  client: pkg.PoolClient | pkg.Pool,
+  rawTableInput: string,
+  chainIdInput: string,
+  idInput: string | number
+): Promise<boolean> {
+  const table = String(rawTableInput || '').toUpperCase();
+  if (!ALLOWED_TABLES.has(table)) {
+    throw new Error(`Table '${table}' is not allowed.`);
+  }
+  const strId = String(idInput ?? '').trim();
+  if (!strId) return false;
+
+  if (STRING_PK_TABLES.has(table)) {
+    const res = await client.query(`DELETE FROM "${table}" WHERE id = $1 RETURNING id`, [strId]);
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  const chainId = String(chainIdInput || 'chain-default').trim();
+  const clientRef = `${chainId}::${strId}`;
+  const res = await client.query(
+    TENANT_SCOPED_TABLES.has(table)
+      ? `DELETE FROM "${table}" WHERE client_ref = $1 OR (COALESCE(chain_id, 'chain-default') = $2 AND id::text = $3) RETURNING id`
+      : `DELETE FROM "${table}" WHERE client_ref = $1 OR id::text = $2 RETURNING id`,
+    TENANT_SCOPED_TABLES.has(table) ? [clientRef, chainId, strId] : [clientRef, strId]
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 // ------------------------------------------------------------------------
@@ -509,6 +940,14 @@ app.post('/api/db/configure', async (req: Request, res: Response) => {
     currentConfig = { ...nextConfig, host: connectedHost };
     pool = connectedPool;
     persistEnvConfig(currentConfig);
+
+    try {
+      const client = await pool.connect();
+      await ensureMultiTenantSchema(client);
+      client.release();
+    } catch {
+      // non-fatal
+    }
 
     res.json({
       success: true,
@@ -738,6 +1177,80 @@ app.get('/api/db/export-all', async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const error = err as Error;
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 8. Real-Time Write-Through Sync Endpoint (Upsert single record from POS/ERP actions)
+app.post('/api/db/sync-record', async (req: Request, res: Response) => {
+  const { table, chainId, record } = req.body || {};
+  if (!table || !record || typeof record !== 'object') {
+    return res.status(400).json({ success: false, error: 'Missing table or record payload.' });
+  }
+  const auth = getAuthContext(req);
+  const effectiveChain = String(chainId || auth.chainId || 'chain-default');
+  try {
+    const saved = await syncRecordToDb(pool, String(table), effectiveChain, record as Record<string, unknown>);
+    res.json({ success: true, table: String(table).toUpperCase(), data: saved });
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.warn(`[PostgreSQL Sync Warning] ${table}:`, error.message);
+    res.status(500).json({ success: false, table: String(table).toUpperCase(), error: error.message });
+  }
+});
+
+// 9. Real-Time Delete Sync Endpoint
+app.post('/api/db/delete-record', async (req: Request, res: Response) => {
+  const { table, chainId, id } = req.body || {};
+  if (!table || id === undefined || id === null || id === '') {
+    return res.status(400).json({ success: false, error: 'Missing table or id.' });
+  }
+  const auth = getAuthContext(req);
+  const effectiveChain = String(chainId || auth.chainId || 'chain-default');
+  try {
+    const deleted = await deleteRecordFromDb(pool, String(table), effectiveChain, id);
+    res.json({ success: true, table: String(table).toUpperCase(), deleted });
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.warn(`[PostgreSQL Delete Sync Warning] ${table}:`, error.message);
+    res.status(500).json({ success: false, table: String(table).toUpperCase(), error: error.message });
+  }
+});
+
+// 10. Ordered Batch Sync Endpoint (Pushes local organizations & records cleanly into PostgreSQL)
+app.post('/api/db/sync-batch', async (req: Request, res: Response) => {
+  const { items } = req.body || {};
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ success: false, error: 'Expected items array.' });
+  }
+
+  let syncedCount = 0;
+  const errors: Array<{ table: string; error: string }> = [];
+
+  try {
+    const client = await connectWithIpv4Fallback();
+    try {
+      await ensureMultiTenantSchema(client);
+      for (const item of items) {
+        if (!item || !item.table || !item.record) continue;
+        try {
+          await syncRecordToDb(client, String(item.table), String(item.chainId || 'chain-default'), item.record);
+          syncedCount++;
+        } catch (err: unknown) {
+          errors.push({ table: String(item.table), error: (err as Error).message });
+        }
+      }
+      res.json({
+        success: true,
+        syncedCount,
+        totalRequested: items.length,
+        errorCount: errors.length,
+        errors: errors.slice(0, 15),
+      });
+    } finally {
+      client.release();
+    }
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, error: (err as Error).message, syncedCount });
   }
 });
 

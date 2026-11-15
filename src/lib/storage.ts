@@ -51,6 +51,19 @@ import {
   initialImportLogs
 } from '../data/initialData';
 import { calcCft } from './cft';
+import { databaseService, SyncBatchItem } from './databaseService';
+
+let suppressPgSync = false;
+
+function pgSync(table: string, chainId: string, record: unknown): void {
+  if (suppressPgSync || !record || typeof record !== 'object') return;
+  void databaseService.syncRecord(table, chainId || 'chain-default', record as Record<string, unknown>);
+}
+
+function pgDelete(table: string, chainId: string, id: string | number): void {
+  if (suppressPgSync || id === undefined || id === null || id === '') return;
+  void databaseService.deleteRecordSync(table, chainId || 'chain-default', id);
+}
 
 // Storage / Table Identifiers (Standardized UPPERCASE table names across application)
 export const TABLE_NAMES = {
@@ -331,6 +344,7 @@ export function saveSubscriptionPlan(
       updated_at: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(plans));
+    pgSync(TABLE_NAMES.SUBSCRIPTION_PLANS, 'chain-default', plans[idx]);
     logActivity('UPDATE', 'SUBSCRIPTION_PLANS', plans[idx].id, `Updated subscription plan "${plans[idx].name}"`);
     notifyStorageChange();
     return { success: true, message: `Plan "${plans[idx].name}" updated successfully.`, plan: plans[idx] };
@@ -360,6 +374,7 @@ export function saveSubscriptionPlan(
 
   const updated = [...plans, newPlan];
   localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(updated));
+  pgSync(TABLE_NAMES.SUBSCRIPTION_PLANS, 'chain-default', newPlan);
   logActivity('CREATE', 'SUBSCRIPTION_PLANS', newPlan.id, `Created subscription plan "${newPlan.name}"`);
   notifyStorageChange();
   return { success: true, message: `Subscription plan "${newPlan.name}" created.`, plan: newPlan };
@@ -372,6 +387,7 @@ export function toggleSubscriptionPlanStatus(planId: string): { success: boolean
   plans[idx].status = plans[idx].status === 'active' ? 'inactive' : 'active';
   plans[idx].updated_at = new Date().toISOString();
   localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(plans));
+  pgSync(TABLE_NAMES.SUBSCRIPTION_PLANS, 'chain-default', plans[idx]);
   logActivity('TOGGLE_STATUS', 'SUBSCRIPTION_PLANS', planId, `Set plan "${plans[idx].name}" to ${plans[idx].status}`);
   notifyStorageChange();
   return { success: true, message: `Plan "${plans[idx].name}" is now ${plans[idx].status}.` };
@@ -396,6 +412,7 @@ export function recordSubscriptionHistory(entry: Omit<SubscriptionHistoryEntry, 
     created_at: new Date().toISOString(),
   };
   localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify([record, ...existing].slice(0, 200)));
+  pgSync(TABLE_NAMES.SUBSCRIPTION_HISTORY, record.organization_id || 'chain-default', record);
 }
 
 export function getEffectiveOrgLimits(chain?: StoreChain | null): {
@@ -580,6 +597,7 @@ export function updateStoreChain(
     // ignore
   }
 
+  pgSync(TABLE_NAMES.STORE_CHAINS, chainId, chains[idx]);
   logActivity('UPDATE', 'STORE_CHAINS', chainId, `Updated organization "${chains[idx].name}"`);
   notifyStorageChange();
   return { success: true, message: 'Organization updated successfully', chain: chains[idx] };
@@ -600,6 +618,7 @@ export function setOrganizationStatus(
   chains[idx].status = status;
   chains[idx].is_active = status === 'active';
   localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(chains));
+  pgSync(TABLE_NAMES.STORE_CHAINS, chainId, chains[idx]);
 
   const currentUser = getCurrentUser();
   const plan = getPlanById(chains[idx].plan_id);
@@ -890,25 +909,37 @@ export function registerOrganization(data: {
   localStorage.setItem(`${STORAGE_KEYS.PAYMENTS}_${newChainId}`, JSON.stringify([]));
   localStorage.setItem(`${STORAGE_KEYS.EXPENSES}_${newChainId}`, JSON.stringify([]));
   localStorage.setItem(`${STORAGE_KEYS.IMPORT_LOGS}_${newChainId}`, JSON.stringify([]));
-  localStorage.setItem(
-    `${STORAGE_KEYS.LOGS}_${newChainId}`,
-    JSON.stringify([
-      {
-        id: 1,
-        organization_id: newChainId,
-        organization_name: cleanName,
-        branch_id: headOfficeBranchId,
-        branch_name: headOfficeBranch.name,
-        user_id: 1,
-        username: 'Mobin',
-        action: 'CREATE',
-        table_name: 'STORE_CHAINS',
-        record_id: newChainId,
-        details: `Organization "${cleanName}" (${finalCode}) registered on ${plan.name} plan`,
-        created_at: new Date().toISOString(),
-      },
-    ])
-  );
+  const initialOrgLog: ActivityLog = {
+    id: 1,
+    organization_id: newChainId,
+    organization_name: cleanName,
+    branch_id: headOfficeBranchId,
+    branch_name: headOfficeBranch.name,
+    user_id: 1,
+    username: 'Mobin',
+    action: 'CREATE',
+    table_name: 'STORE_CHAINS',
+    record_id: newChainId,
+    details: `Organization "${cleanName}" (${finalCode}) registered on ${plan.name} plan`,
+    created_at: new Date().toISOString(),
+  };
+
+  localStorage.setItem(`${STORAGE_KEYS.LOGS}_${newChainId}`, JSON.stringify([initialOrgLog]));
+
+  if (!suppressPgSync) {
+    const regBatch: SyncBatchItem[] = [
+      { table: TABLE_NAMES.STORE_CHAINS, chainId: newChainId, record: newChain as unknown as Record<string, unknown> },
+      { table: TABLE_NAMES.BRANCHES, chainId: newChainId, record: { ...headOfficeBranch, chain_id: newChainId } },
+      ...orgRoles.map((r) => ({
+        table: TABLE_NAMES.ROLES,
+        chainId: newChainId,
+        record: { ...r, chain_id: newChainId },
+      })),
+      { table: TABLE_NAMES.USERS, chainId: newChainId, record: { ...adminUser, chain_id: newChainId } },
+      { table: TABLE_NAMES.ACTIVITY_LOGS, chainId: newChainId, record: { ...initialOrgLog, chain_id: newChainId } },
+    ];
+    void databaseService.syncBatch(regBatch);
+  }
 
   const actor = getCurrentUser();
   recordSubscriptionHistory({
@@ -1559,6 +1590,7 @@ export function logActivity(
     created_at: new Date().toISOString(),
   };
   setStoredItem(STORAGE_KEYS.LOGS, [newLog, ...logs].slice(0, 500));
+  pgSync(TABLE_NAMES.ACTIVITY_LOGS, activeChain.id, { ...newLog, chain_id: activeChain.id });
 }
 
 export function getActivityLogs(): ActivityLog[] {
@@ -1807,6 +1839,7 @@ export function saveRole(
       updated_at: new Date().toISOString(),
     };
     localStorage.setItem(key, JSON.stringify(roles));
+    pgSync(TABLE_NAMES.ROLES, orgId, { ...roles[idx], chain_id: orgId });
 
     // Propagate updated role permissions to linked users
     if (roleInput.permissions) {
@@ -1815,7 +1848,9 @@ export function saveRole(
       const updatedUsers = users.map((u) => {
         if (u.custom_role_id === roleInput.id) {
           usersChanged = true;
-          return { ...u, permissions: { ...roleInput.permissions! } };
+          const nextU = { ...u, permissions: { ...roleInput.permissions! } };
+          pgSync(TABLE_NAMES.USERS, orgId, { ...nextU, chain_id: orgId });
+          return nextU;
         }
         return u;
       });
@@ -1848,6 +1883,7 @@ export function saveRole(
 
   const nextRoles = [...roles, newRole];
   localStorage.setItem(key, JSON.stringify(nextRoles));
+  pgSync(TABLE_NAMES.ROLES, orgId, { ...newRole, chain_id: orgId });
   logActivity('CREATE', 'ROLES', newRole.id, `Created custom role "${newRole.name}"`);
   notifyStorageChange();
   return { success: true, message: `Role "${newRole.name}" created.`, role: newRole };
@@ -1862,6 +1898,7 @@ export function deleteRole(roleId: string): { success: boolean; message: string 
 
   const key = getTenantStorageKey(STORAGE_KEYS.ROLES, orgId);
   localStorage.setItem(key, JSON.stringify(roles.filter((r) => r.id !== roleId)));
+  pgDelete(TABLE_NAMES.ROLES, orgId, roleId);
   logActivity('DELETE', 'ROLES', roleId, `Deleted custom role "${target.name}"`);
   notifyStorageChange();
   return { success: true, message: `Role "${target.name}" deleted.` };
@@ -2047,6 +2084,7 @@ export function saveUser(userData: Partial<User> & { full_name: string; username
       updated_at: new Date().toISOString(),
     };
     setStoredItem(STORAGE_KEYS.USERS, users);
+    pgSync(TABLE_NAMES.USERS, activeChain.id, { ...users[idx], chain_id: users[idx].is_super_admin ? null : activeChain.id });
     logActivity('UPDATE', 'Users', userData.id, `Updated user ${userData.full_name}`);
     return { success: true, message: 'User updated successfully', user: users[idx] };
   } else {
@@ -2091,6 +2129,7 @@ export function saveUser(userData: Partial<User> & { full_name: string; username
     };
     users.unshift(newUser);
     setStoredItem(STORAGE_KEYS.USERS, users);
+    pgSync(TABLE_NAMES.USERS, activeChain.id, { ...newUser, chain_id: newUser.is_super_admin ? null : activeChain.id });
     logActivity('CREATE', 'Users', newUser.id, `Created user ${newUser.full_name} (${newUser.role})`);
     return { success: true, message: 'User created successfully', user: newUser };
   }
@@ -2104,6 +2143,7 @@ export function deleteUser(id: number): { success: boolean; message: string } {
   }
   const filtered = users.filter((u) => u.id !== id);
   setStoredItem(STORAGE_KEYS.USERS, filtered);
+  pgDelete(TABLE_NAMES.USERS, getActiveChainId(), id);
   logActivity('DELETE', 'Users', id, `Deleted user #${id}`);
   return { success: true, message: 'User deleted' };
 }
@@ -2113,7 +2153,9 @@ export function toggleUserStatus(id: number): { success: boolean; message: strin
   const user = users.find((u) => u.id === id);
   if (!user) return { success: false, message: 'User not found' };
   user.is_active = !user.is_active;
+  user.account_status = user.is_active ? 'active' : 'inactive';
   setStoredItem(STORAGE_KEYS.USERS, users);
+  pgSync(TABLE_NAMES.USERS, getActiveChainId(), { ...user, chain_id: user.is_super_admin ? null : getActiveChainId() });
   logActivity('TOGGLE_STATUS', 'Users', id, `Toggled status for ${user.full_name} (${user.is_active ? 'Active' : 'Inactive'})`);
   return { success: true, message: `User ${user.is_active ? 'activated' : 'deactivated'}` };
 }
@@ -2131,6 +2173,7 @@ export function saveCategory(cat: Partial<Category> & { name: string }): { succe
     if (idx === -1) return { success: false, message: 'Category not found' };
     cats[idx] = { ...cats[idx], ...cat };
     setStoredItem(STORAGE_KEYS.CATEGORIES, cats);
+    pgSync(TABLE_NAMES.CATEGORIES, getActiveChainId(), cats[idx]);
     logActivity('UPDATE', 'Categories', cat.id, `Updated category ${cat.name}`);
     return { success: true, message: 'Category updated' };
   } else {
@@ -2148,6 +2191,7 @@ export function saveCategory(cat: Partial<Category> & { name: string }): { succe
     };
     cats.unshift(newCat);
     setStoredItem(STORAGE_KEYS.CATEGORIES, cats);
+    pgSync(TABLE_NAMES.CATEGORIES, getActiveChainId(), newCat);
     logActivity('CREATE', 'Categories', newCat.id, `Created category ${newCat.name}`);
     return { success: true, message: 'Category added successfully' };
   }
@@ -2156,6 +2200,7 @@ export function saveCategory(cat: Partial<Category> & { name: string }): { succe
 export function deleteCategory(id: number): { success: boolean; message: string } {
   const cats = getCategories().filter((c) => Number(c.id) !== Number(id));
   setStoredItem(STORAGE_KEYS.CATEGORIES, cats);
+  pgDelete(TABLE_NAMES.CATEGORIES, getActiveChainId(), id);
   logActivity('DELETE', 'Categories', id, `Deleted category #${id}`);
   return { success: true, message: 'Category deleted successfully' };
 }
@@ -2185,6 +2230,7 @@ export function saveItemGroup(group: Partial<ItemGroup> & { group_id: string }):
     if (idx === -1) return { success: false, message: 'Item Group not found' };
     groups[idx] = { ...groups[idx], ...group };
     setStoredItem(STORAGE_KEYS.ITEM_GROUPS, groups);
+    pgSync(TABLE_NAMES.ITEM_GROUPS, getActiveChainId(), groups[idx]);
     logActivity('UPDATE', 'Item_Groups', group.id, `Updated item group ${group.group_id}`);
     return { success: true, message: 'Item Group updated' };
   } else {
@@ -2201,6 +2247,7 @@ export function saveItemGroup(group: Partial<ItemGroup> & { group_id: string }):
     };
     groups.unshift(newGroup);
     setStoredItem(STORAGE_KEYS.ITEM_GROUPS, groups);
+    pgSync(TABLE_NAMES.ITEM_GROUPS, getActiveChainId(), newGroup);
     logActivity('CREATE', 'Item_Groups', newGroup.id, `Created item group ${newGroup.group_id}`);
     return { success: true, message: 'Item Group added successfully' };
   }
@@ -2209,6 +2256,7 @@ export function saveItemGroup(group: Partial<ItemGroup> & { group_id: string }):
 export function deleteItemGroup(id: number): { success: boolean; message: string } {
   const groups = getItemGroups().filter((g) => g.id !== id);
   setStoredItem(STORAGE_KEYS.ITEM_GROUPS, groups);
+  pgDelete(TABLE_NAMES.ITEM_GROUPS, getActiveChainId(), id);
   logActivity('DELETE', 'Item_Groups', id, `Deleted item group #${id}`);
   return { success: true, message: 'Item Group deleted' };
 }
@@ -2218,6 +2266,7 @@ export function bulkImportCategories(rows: any[]): { success: boolean; message: 
   const cats = getCategories();
   const itemGroups = getItemGroups();
   const currentUser = getCurrentUser();
+  const createdCats: Category[] = [];
   let count = 0;
 
   for (const r of rows) {
@@ -2248,11 +2297,18 @@ export function bulkImportCategories(rows: any[]): { success: boolean; message: 
       created_at: new Date().toISOString(),
     };
     cats.unshift(newCat);
+    createdCats.push(newCat);
     count++;
   }
 
   if (count > 0) {
     setStoredItem(STORAGE_KEYS.CATEGORIES, cats);
+    const activeChainId = getActiveChainId();
+    if (!suppressPgSync) {
+      void databaseService.syncBatch(
+        createdCats.map((c) => ({ table: TABLE_NAMES.CATEGORIES, chainId: activeChainId, record: c as unknown as Record<string, unknown> }))
+      );
+    }
     logActivity('BULK_IMPORT', 'Categories', count, `Bulk imported ${count} categories`);
     return { success: true, message: `Successfully imported ${count} categories`, count };
   }
@@ -2309,6 +2365,7 @@ export function bulkImportSubCategories(rows: any[]): { success: boolean; messag
 export function bulkImportItemGroups(rows: any[]): { success: boolean; message: string; count: number } {
   const groups = getItemGroups();
   const currentUser = getCurrentUser();
+  const createdGroups: ItemGroup[] = [];
   let count = 0;
 
   for (const r of rows) {
@@ -2329,11 +2386,18 @@ export function bulkImportItemGroups(rows: any[]): { success: boolean; message: 
       created_at: new Date().toISOString(),
     };
     groups.unshift(newGroup);
+    createdGroups.push(newGroup);
     count++;
   }
 
   if (count > 0) {
     setStoredItem(STORAGE_KEYS.ITEM_GROUPS, groups);
+    const activeChainId = getActiveChainId();
+    if (!suppressPgSync) {
+      void databaseService.syncBatch(
+        createdGroups.map((g) => ({ table: TABLE_NAMES.ITEM_GROUPS, chainId: activeChainId, record: g as unknown as Record<string, unknown> }))
+      );
+    }
     logActivity('BULK_IMPORT', 'Item_Groups', count, `Bulk imported ${count} item groups`);
     return { success: true, message: `Successfully imported ${count} item groups`, count };
   }
@@ -2354,6 +2418,7 @@ export function saveBrand(brand: Partial<Brand> & { name: string }): { success: 
     if (idx === -1) return { success: false, message: 'Brand not found' };
     brands[idx] = { ...brands[idx], ...brand };
     setStoredItem(STORAGE_KEYS.BRANDS, brands);
+    pgSync(TABLE_NAMES.BRANDS, getActiveChainId(), brands[idx]);
     logActivity('UPDATE', 'Brands', brand.id, `Updated brand ${brand.name}`);
     return { success: true, message: 'Brand updated successfully' };
   } else {
@@ -2373,6 +2438,7 @@ export function saveBrand(brand: Partial<Brand> & { name: string }): { success: 
     };
     brands.unshift(newBrand);
     setStoredItem(STORAGE_KEYS.BRANDS, brands);
+    pgSync(TABLE_NAMES.BRANDS, getActiveChainId(), newBrand);
     logActivity('CREATE', 'Brands', newBrand.id, `Created brand ${newBrand.name}`);
     return { success: true, message: 'Brand added successfully' };
   }
@@ -2386,6 +2452,7 @@ export function deleteBrand(id: number): { success: boolean; message: string } {
   }
   const brands = getBrands().filter((b) => b.id !== id);
   setStoredItem(STORAGE_KEYS.BRANDS, brands);
+  pgDelete(TABLE_NAMES.BRANDS, getActiveChainId(), id);
   logActivity('DELETE', 'Brands', id, `Deleted brand #${id}`);
   return { success: true, message: 'Brand deleted successfully' };
 }
@@ -2393,6 +2460,7 @@ export function deleteBrand(id: number): { success: boolean; message: string } {
 export function bulkImportBrands(rows: any[]): { success: boolean; message: string; count: number } {
   const brands = getBrands();
   const currentUser = getCurrentUser();
+  const createdBrands: Brand[] = [];
   let count = 0;
 
   for (const r of rows) {
@@ -2415,11 +2483,18 @@ export function bulkImportBrands(rows: any[]): { success: boolean; message: stri
       created_at: new Date().toISOString(),
     };
     brands.unshift(newBrand);
+    createdBrands.push(newBrand);
     count++;
   }
 
   if (count > 0) {
     setStoredItem(STORAGE_KEYS.BRANDS, brands);
+    const activeChainId = getActiveChainId();
+    if (!suppressPgSync) {
+      void databaseService.syncBatch(
+        createdBrands.map((b) => ({ table: TABLE_NAMES.BRANDS, chainId: activeChainId, record: b as unknown as Record<string, unknown> }))
+      );
+    }
     logActivity('BULK_IMPORT', 'Brands', count, `Bulk imported ${count} brands`);
     return { success: true, message: `Successfully imported ${count} brands`, count };
   }
@@ -2440,6 +2515,7 @@ export function saveItemDefinition(item: Partial<ItemDefinition> & { item_code: 
     if (idx === -1) return { success: false, message: 'Item Definition not found' };
     items[idx] = { ...items[idx], ...item };
     setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, items);
+    pgSync(TABLE_NAMES.ITEM_DEFINITIONS, getActiveChainId(), items[idx]);
     logActivity('UPDATE', 'Item_Definitions', item.id, `Updated item ${item.item_name}`);
     return { success: true, message: 'Item Definition updated' };
   } else {
@@ -2481,6 +2557,7 @@ export function saveItemDefinition(item: Partial<ItemDefinition> & { item_code: 
     };
     items.unshift(newItem);
     setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, items);
+    pgSync(TABLE_NAMES.ITEM_DEFINITIONS, getActiveChainId(), newItem);
     logActivity('CREATE', 'Item_Definitions', newItem.id, `Created item definition ${newItem.item_name}`);
     return { success: true, message: 'Item Definition added successfully' };
   }
@@ -2489,6 +2566,7 @@ export function saveItemDefinition(item: Partial<ItemDefinition> & { item_code: 
 export function deleteItemDefinition(id: number): { success: boolean; message: string } {
   const items = getItemDefinitions().filter((i) => i.id !== id);
   setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, items);
+  pgDelete(TABLE_NAMES.ITEM_DEFINITIONS, getActiveChainId(), id);
   logActivity('DELETE', 'Item_Definitions', id, `Deleted item definition #${id}`);
   return { success: true, message: 'Item Definition deleted' };
 }
@@ -2497,6 +2575,7 @@ export function bulkImportItemDefinitions(rows: any[]): { success: boolean; mess
   const items = getItemDefinitions();
   const brands = getBrands();
   const currentUser = getCurrentUser();
+  const createdItems: ItemDefinition[] = [];
   let count = 0;
 
   for (const r of rows) {
@@ -2562,11 +2641,18 @@ export function bulkImportItemDefinitions(rows: any[]): { success: boolean; mess
       created_at: new Date().toISOString(),
     };
     items.unshift(newItem);
+    createdItems.push(newItem);
     count++;
   }
 
   if (count > 0) {
     setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, items);
+    const activeChainId = getActiveChainId();
+    if (!suppressPgSync) {
+      void databaseService.syncBatch(
+        createdItems.map((i) => ({ table: TABLE_NAMES.ITEM_DEFINITIONS, chainId: activeChainId, record: i as unknown as Record<string, unknown> }))
+      );
+    }
     logActivity('BULK_IMPORT', 'Item_Definitions', count, `Bulk imported ${count} item definitions`);
     return { success: true, message: `Successfully imported ${count} item definitions`, count };
   }
@@ -2778,6 +2864,7 @@ export function saveSupplier(supplier: Partial<Supplier> & { name: string }): { 
     if (idx === -1) return { success: false, message: 'Supplier not found' };
     suppliers[idx] = { ...suppliers[idx], ...supplier };
     setStoredItem(STORAGE_KEYS.SUPPLIERS, suppliers);
+    pgSync(TABLE_NAMES.SUPPLIERS, getActiveChainId(), suppliers[idx]);
     logActivity('UPDATE', 'Suppliers', supplier.id, `Updated supplier ${supplier.name}`);
     return { success: true, message: 'Supplier updated', supplier: suppliers[idx] };
   } else {
@@ -2792,6 +2879,7 @@ export function saveSupplier(supplier: Partial<Supplier> & { name: string }): { 
     };
     suppliers.unshift(newSupplier);
     setStoredItem(STORAGE_KEYS.SUPPLIERS, suppliers);
+    pgSync(TABLE_NAMES.SUPPLIERS, getActiveChainId(), newSupplier);
     logActivity('CREATE', 'Suppliers', newSupplier.id, `Added supplier ${newSupplier.name}`);
     return { success: true, message: 'Supplier added successfully', supplier: newSupplier };
   }
@@ -2810,6 +2898,7 @@ export function saveCustomer(customer: Partial<Customer> & { name: string }): { 
     if (idx === -1) return { success: false, message: 'Customer not found' };
     customers[idx] = { ...customers[idx], ...customer };
     setStoredItem(STORAGE_KEYS.CUSTOMERS, customers);
+    pgSync(TABLE_NAMES.CUSTOMERS, getActiveChainId(), customers[idx]);
     logActivity('UPDATE', 'Customers', customer.id, `Updated customer ${customer.name}`);
     return { success: true, message: 'Customer updated', customer: customers[idx] };
   } else {
@@ -2833,6 +2922,7 @@ export function saveCustomer(customer: Partial<Customer> & { name: string }): { 
     };
     customers.unshift(newCustomer);
     setStoredItem(STORAGE_KEYS.CUSTOMERS, customers);
+    pgSync(TABLE_NAMES.CUSTOMERS, getActiveChainId(), newCustomer);
     logActivity('CREATE', 'Customers', newCustomer.id, `Added customer ${newCustomer.name} (QR: ${newCustomer.qr_code})`);
     return { success: true, message: 'Customer added successfully', customer: newCustomer };
   }
@@ -2908,6 +2998,7 @@ export function savePurchase(data: {
 
   purchases.unshift(newPurchase);
   setStoredItem(STORAGE_KEYS.PURCHASES, purchases);
+  pgSync(TABLE_NAMES.PURCHASES, getActiveChainId(), newPurchase);
 
   // Link wood stocks to this purchase
   const allStocks = getWoodStocks();
@@ -3145,6 +3236,21 @@ export function completeSale(data: {
   setStoredItem(STORAGE_KEYS.SALE_ITEMS, [...newSaleItems, ...saleItems]);
   setStoredItem(STORAGE_KEYS.WOOD_STOCKS, stocks);
 
+  const activeChainIdForSale = getActiveChainId();
+  const activeBranchIdForSale = getSettings().active_branch_id || '';
+  const saleSyncItems: SyncBatchItem[] = [
+    {
+      table: TABLE_NAMES.SALES,
+      chainId: activeChainIdForSale,
+      record: { ...newSale, branch_id: activeBranchIdForSale } as unknown as Record<string, unknown>,
+    },
+    ...newSaleItems.map((si) => ({
+      table: TABLE_NAMES.SALE_ITEMS,
+      chainId: activeChainIdForSale,
+      record: si as unknown as Record<string, unknown>,
+    })),
+  ];
+
   // Update Customer balance & Loyalty Points if customer is selected
   if (data.customer_id) {
     const customers = getCustomers();
@@ -3160,7 +3266,16 @@ export function completeSale(data: {
       cust.loyalty_points = Math.max(0, (cust.loyalty_points || 0) - ptsRedeemed + ptsEarned);
 
       setStoredItem(STORAGE_KEYS.CUSTOMERS, customers);
+      saleSyncItems.push({
+        table: TABLE_NAMES.CUSTOMERS,
+        chainId: activeChainIdForSale,
+        record: cust as unknown as Record<string, unknown>,
+      });
     }
+  }
+
+  if (!suppressPgSync) {
+    void databaseService.syncBatch(saleSyncItems);
   }
 
   // Record customer payment
@@ -3192,6 +3307,7 @@ export function cancelSale(saleId: number, reason: string = ''): { success: bool
   sale.notes = `${sale.notes ? sale.notes + ' | ' : ''}Cancelled: ${reason}`;
   sale.updated_at = new Date().toISOString();
   setStoredItem(STORAGE_KEYS.SALES, sales);
+  pgSync(TABLE_NAMES.SALES, getActiveChainId(), sale);
 
   // Restore Wood Stocks to 'available'
   const saleItems = getSaleItems().filter((si) => si.sale_id === saleId);
@@ -3214,6 +3330,7 @@ export function cancelSale(saleId: number, reason: string = ''): { success: bool
       cust.total_paid = Math.max(0, cust.total_paid - sale.paid_amount);
       cust.total_due = Math.round((cust.total_purchase - cust.total_paid) * 100) / 100;
       setStoredItem(STORAGE_KEYS.CUSTOMERS, customers);
+      pgSync(TABLE_NAMES.CUSTOMERS, getActiveChainId(), cust);
     }
   }
 
@@ -3241,6 +3358,7 @@ export function returnSaleItem(saleItemId: number, reason: string = ''): { succe
   // Remove item from sale_items
   const updatedSaleItems = saleItems.filter((si) => si.id !== saleItemId);
   setStoredItem(STORAGE_KEYS.SALE_ITEMS, updatedSaleItems);
+  pgDelete(TABLE_NAMES.SALE_ITEMS, getActiveChainId(), saleItemId);
 
   // Recalculate sale
   const remainingItems = updatedSaleItems.filter((si) => si.sale_id === sale.id);
@@ -3252,6 +3370,7 @@ export function returnSaleItem(saleItemId: number, reason: string = ''): { succe
   sale.due_amount = Math.max(0, newGrandTotal - sale.paid_amount);
   sale.notes = `${sale.notes ? sale.notes + ' | ' : ''}Returned item ${item.serial}: ${reason}`;
   setStoredItem(STORAGE_KEYS.SALES, sales);
+  pgSync(TABLE_NAMES.SALES, getActiveChainId(), sale);
 
   logActivity('RETURN_ITEM', 'Sale_Items', saleItemId, `Returned item ${item.serial} from invoice ${sale.invoice_no}`);
   return { success: true, message: 'Item returned and inventory updated' };
@@ -3298,6 +3417,7 @@ export function recordPayment(
 
   payments.unshift(newPayment);
   setStoredItem(STORAGE_KEYS.PAYMENTS, payments);
+  pgSync(TABLE_NAMES.PAYMENTS, getActiveChainId(), newPayment);
 
   if (updateBalances) {
     // Update sale / purchase balances
@@ -3309,6 +3429,7 @@ export function recordPayment(
         sale.due_amount = Math.max(0, Math.round((sale.grand_total - sale.paid_amount) * 100) / 100);
         if (sale.due_amount <= 0) sale.status = 'completed';
         setStoredItem(STORAGE_KEYS.SALES, sales);
+        pgSync(TABLE_NAMES.SALES, getActiveChainId(), sale);
 
         if (sale.customer_id) {
           const customers = getCustomers();
@@ -3317,6 +3438,7 @@ export function recordPayment(
             cust.total_paid += Number(data.amount);
             cust.total_due = Math.max(0, Math.round((cust.total_purchase - cust.total_paid) * 100) / 100);
             setStoredItem(STORAGE_KEYS.CUSTOMERS, customers);
+            pgSync(TABLE_NAMES.CUSTOMERS, getActiveChainId(), cust);
           }
         }
       }
@@ -3330,6 +3452,7 @@ export function recordPayment(
         pur.due_amount = Math.max(0, Math.round((pur.total_amount - pur.paid_amount) * 100) / 100);
         if (pur.due_amount <= 0) pur.status = 'completed';
         setStoredItem(STORAGE_KEYS.PURCHASES, purchases);
+        pgSync(TABLE_NAMES.PURCHASES, getActiveChainId(), pur);
       }
     }
   }
@@ -3352,6 +3475,7 @@ export function saveExpense(expenseData: Partial<Expense> & { title: string; amo
     if (idx === -1) return { success: false, message: 'Expense not found' };
     expenses[idx] = { ...expenses[idx], ...expenseData };
     setStoredItem(STORAGE_KEYS.EXPENSES, expenses);
+    pgSync(TABLE_NAMES.EXPENSES, getActiveChainId(), expenses[idx]);
     logActivity('UPDATE', 'Expenses', expenseData.id, `Updated expense ${expenseData.title}`);
     return { success: true, message: 'Expense updated', expense: expenses[idx] };
   } else {
@@ -3367,6 +3491,7 @@ export function saveExpense(expenseData: Partial<Expense> & { title: string; amo
     };
     expenses.unshift(newExpense);
     setStoredItem(STORAGE_KEYS.EXPENSES, expenses);
+    pgSync(TABLE_NAMES.EXPENSES, getActiveChainId(), newExpense);
     logActivity('CREATE', 'Expenses', newExpense.id, `Added expense ${newExpense.title} (${formatCurrency(newExpense.amount)})`);
     return { success: true, message: 'Expense recorded successfully', expense: newExpense };
   }
@@ -3375,6 +3500,7 @@ export function saveExpense(expenseData: Partial<Expense> & { title: string; amo
 export function deleteExpense(id: number): { success: boolean; message: string } {
   const expenses = getExpenses().filter((e) => e.id !== id);
   setStoredItem(STORAGE_KEYS.EXPENSES, expenses);
+  pgDelete(TABLE_NAMES.EXPENSES, getActiveChainId(), id);
   logActivity('DELETE', 'Expenses', id, `Deleted expense #${id}`);
   return { success: true, message: 'Expense deleted' };
 }
@@ -3621,6 +3747,7 @@ export function saveBranchForOrg(
   }
 
   saveSettings({ ...currentSettings, branches });
+  pgSync(TABLE_NAMES.BRANCHES, activeChain.id, { ...savedBranch, chain_id: activeChain.id });
   return { success: true, message: `Branch "${savedBranch.name}" saved successfully.`, branch: savedBranch };
 }
 
@@ -3641,6 +3768,7 @@ export function toggleBranchStatus(branchId: string): { success: boolean; messag
   const nextStatus: 'active' | 'inactive' = currentStatus === 'active' ? 'inactive' : 'active';
   branches[idx] = { ...branches[idx], status: nextStatus, is_active: nextStatus === 'active' };
   saveSettings({ ...currentSettings, branches });
+  pgSync(TABLE_NAMES.BRANCHES, getActiveChainId(), { ...branches[idx], chain_id: getActiveChainId() });
   logActivity('TOGGLE_STATUS', 'BRANCHES', branchId, `Branch "${branches[idx].name}" marked ${nextStatus.toUpperCase()}`);
   return { success: true, message: `Branch "${branches[idx].name}" is now ${nextStatus}.` };
 }
@@ -3656,6 +3784,7 @@ export function deleteBranchForOrg(branchId: string): { success: boolean; messag
   const remaining = branches.filter((b) => b.id !== branchId);
   const nextActiveId = currentSettings.active_branch_id === branchId ? remaining[0].id : currentSettings.active_branch_id;
   saveSettings({ ...currentSettings, branches: remaining, active_branch_id: nextActiveId });
+  pgDelete(TABLE_NAMES.BRANCHES, getActiveChainId(), branchId);
   logActivity('DELETE', 'BRANCHES', branchId, `Removed branch "${target.name}"`);
   return { success: true, message: `Branch "${target.name}" removed.` };
 }
@@ -3779,6 +3908,154 @@ export function globalSearch(query: string): Array<{ type: string; id: number; t
   return results.slice(0, 10);
 }
 
+function readRawTenantList<T>(baseKey: string, chainId: string, defaultFallback: T[]): T[] {
+  try {
+    const tenantKey = getTenantStorageKey(baseKey, chainId);
+    const raw = localStorage.getItem(tenantKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+    return chainId === 'chain-default' ? defaultFallback : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function syncAllLocalToPostgres(): Promise<{
+  success: boolean;
+  syncedCount: number;
+  errorCount?: number;
+  message: string;
+}> {
+  const items: SyncBatchItem[] = [];
+
+  const plans = getSubscriptionPlans();
+  for (const p of plans) {
+    items.push({ table: TABLE_NAMES.SUBSCRIPTION_PLANS, chainId: 'chain-default', record: p as unknown as Record<string, unknown> });
+  }
+
+  const chains = getStoreChains();
+  for (const c of chains) {
+    items.push({ table: TABLE_NAMES.STORE_CHAINS, chainId: c.id, record: c as unknown as Record<string, unknown> });
+  }
+
+  const history = getSubscriptionHistory();
+  for (const h of history) {
+    items.push({
+      table: TABLE_NAMES.SUBSCRIPTION_HISTORY,
+      chainId: h.organization_id || 'chain-default',
+      record: h as unknown as Record<string, unknown>,
+    });
+  }
+
+  // Push Global Super Admin
+  items.push({
+    table: TABLE_NAMES.USERS,
+    chainId: 'chain-default',
+    record: { ...MOBIN_SUPER_ADMIN, is_super_admin: true, chain_id: null } as unknown as Record<string, unknown>,
+  });
+
+  for (const chain of chains) {
+    const chainId = chain.id;
+
+    const branches = getOrganizationBranches(chainId);
+    for (const br of branches) {
+      items.push({ table: TABLE_NAMES.BRANCHES, chainId, record: { ...br, chain_id: chainId } as unknown as Record<string, unknown> });
+    }
+
+    const roles = getRoles(chainId);
+    for (const r of roles) {
+      items.push({ table: TABLE_NAMES.ROLES, chainId, record: { ...r, chain_id: chainId } as unknown as Record<string, unknown> });
+    }
+
+    const users = getOrganizationUsers(chainId);
+    for (const u of users) {
+      items.push({ table: TABLE_NAMES.USERS, chainId, record: { ...u, chain_id: chainId } as unknown as Record<string, unknown> });
+    }
+
+    const itemGroups = readRawTenantList<ItemGroup>(STORAGE_KEYS.ITEM_GROUPS, chainId, initialItemGroups);
+    for (const g of itemGroups) {
+      items.push({ table: TABLE_NAMES.ITEM_GROUPS, chainId, record: g as unknown as Record<string, unknown> });
+    }
+
+    const categories = readRawTenantList<Category>(STORAGE_KEYS.CATEGORIES, chainId, initialCategories);
+    for (const cat of categories) {
+      items.push({ table: TABLE_NAMES.CATEGORIES, chainId, record: cat as unknown as Record<string, unknown> });
+    }
+
+    const brands = readRawTenantList<Brand>(STORAGE_KEYS.BRANDS, chainId, initialBrands);
+    for (const b of brands) {
+      items.push({ table: TABLE_NAMES.BRANDS, chainId, record: b as unknown as Record<string, unknown> });
+    }
+
+    const defs = readRawTenantList<ItemDefinition>(STORAGE_KEYS.ITEM_DEFINITIONS, chainId, initialItemDefinitions);
+    for (const d of defs) {
+      items.push({ table: TABLE_NAMES.ITEM_DEFINITIONS, chainId, record: d as unknown as Record<string, unknown> });
+    }
+
+    const suppliers = readRawTenantList<Supplier>(STORAGE_KEYS.SUPPLIERS, chainId, initialSuppliers);
+    for (const sup of suppliers) {
+      items.push({ table: TABLE_NAMES.SUPPLIERS, chainId, record: sup as unknown as Record<string, unknown> });
+    }
+
+    const customers = readRawTenantList<Customer>(STORAGE_KEYS.CUSTOMERS, chainId, initialCustomers);
+    for (const cust of customers) {
+      items.push({ table: TABLE_NAMES.CUSTOMERS, chainId, record: cust as unknown as Record<string, unknown> });
+    }
+
+    const purchases = readRawTenantList<Purchase>(STORAGE_KEYS.PURCHASES, chainId, initialPurchases);
+    for (const pur of purchases) {
+      items.push({ table: TABLE_NAMES.PURCHASES, chainId, record: pur as unknown as Record<string, unknown> });
+    }
+
+    const sales = readRawTenantList<Sale>(STORAGE_KEYS.SALES, chainId, initialSales);
+    for (const s of sales) {
+      items.push({ table: TABLE_NAMES.SALES, chainId, record: s as unknown as Record<string, unknown> });
+    }
+
+    const saleItems = readRawTenantList<SaleItem>(STORAGE_KEYS.SALE_ITEMS, chainId, initialSaleItems);
+    for (const si of saleItems) {
+      items.push({ table: TABLE_NAMES.SALE_ITEMS, chainId, record: si as unknown as Record<string, unknown> });
+    }
+
+    const payments = readRawTenantList<Payment>(STORAGE_KEYS.PAYMENTS, chainId, initialPayments);
+    for (const pay of payments) {
+      items.push({ table: TABLE_NAMES.PAYMENTS, chainId, record: pay as unknown as Record<string, unknown> });
+    }
+
+    const expenses = readRawTenantList<Expense>(STORAGE_KEYS.EXPENSES, chainId, initialExpenses);
+    for (const exp of expenses) {
+      items.push({ table: TABLE_NAMES.EXPENSES, chainId, record: exp as unknown as Record<string, unknown> });
+    }
+
+    const logs = readRawTenantList<ActivityLog>(STORAGE_KEYS.LOGS, chainId, initialActivityLogs);
+    for (const log of logs) {
+      items.push({ table: TABLE_NAMES.ACTIVITY_LOGS, chainId, record: { ...log, chain_id: chainId } as unknown as Record<string, unknown> });
+    }
+  }
+
+  if (items.length === 0) {
+    return { success: true, syncedCount: 0, message: 'No local records found to sync.' };
+  }
+
+  const res = await databaseService.syncBatch(items);
+  if (res.success) {
+    return {
+      success: true,
+      syncedCount: res.syncedCount,
+      errorCount: res.errorCount,
+      message: `Synchronized ${res.syncedCount} local record(s) across ${chains.length} organization(s) to PostgreSQL.`,
+    };
+  }
+  return {
+    success: false,
+    syncedCount: res.syncedCount,
+    errorCount: res.errorCount,
+    message: res.error || 'Failed to push local records to PostgreSQL.',
+  };
+}
+
 export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>): {
   syncedTables: number;
   totalRows: number;
@@ -3789,6 +4066,7 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
 
   let syncedTables = 0;
   let totalRows = 0;
+  const activeChainId = getActiveChainId();
 
   const num = (val: unknown, fallback = 0): number => {
     if (val === null || val === undefined || val === '') return fallback;
@@ -3796,244 +4074,444 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
-  if (Array.isArray(snapshot.ITEM_GROUPS) && snapshot.ITEM_GROUPS.length > 0) {
-    const mapped = snapshot.ITEM_GROUPS.map((r: any) => ({
-      id: num(r.id),
-      group_id: r.group_id || `GRP-${r.id}`,
-      group_description: r.group_description || '',
-      is_active: r.is_active !== false,
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.ITEM_GROUPS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+  const forActiveChain = (rows: unknown[]): any[] =>
+    rows.filter((r: any) => !r.chain_id || r.chain_id === activeChainId);
 
-  if (Array.isArray(snapshot.CATEGORIES) && snapshot.CATEGORIES.length > 0) {
-    const mapped = snapshot.CATEGORIES.map((r: any) => ({
-      id: num(r.id),
-      item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
-      name: r.name || '',
-      description: r.description || '',
-      is_active: r.is_active !== false,
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.CATEGORIES, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+  suppressPgSync = true;
+  try {
+    if (Array.isArray(snapshot.SUBSCRIPTION_PLANS) && snapshot.SUBSCRIPTION_PLANS.length > 0) {
+      const mapped = snapshot.SUBSCRIPTION_PLANS.map((r: any) => ({
+        id: String(r.id),
+        name: r.name || 'Plan',
+        description: r.description || '',
+        monthly_price: num(r.monthly_price),
+        annual_price: num(r.annual_price),
+        max_branches: num(r.max_branches, 5),
+        max_users: num(r.max_users, 25),
+        max_pos_terminals: num(r.max_pos_terminals, 10),
+        storage_limit_mb: num(r.storage_limit_mb, 1024),
+        available_modules: Array.isArray(r.available_modules) ? r.available_modules : [...ALL_MODULE_KEYS],
+        status: r.status || 'active',
+        created_at: r.created_at || new Date().toISOString(),
+        updated_at: r.updated_at || undefined,
+      }));
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(mapped));
+      syncedTables++;
+      totalRows += mapped.length;
+    }
 
-  if (Array.isArray(snapshot.BRANDS) && snapshot.BRANDS.length > 0) {
-    const mapped = snapshot.BRANDS.map((r: any) => ({
-      id: num(r.id),
-      code: r.code || `BRD-${r.id}`,
-      name: r.name || '',
-      description: r.description || '',
-      is_active: r.is_active !== false,
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.BRANDS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.STORE_CHAINS) && snapshot.STORE_CHAINS.length > 0) {
+      const mapped = snapshot.STORE_CHAINS.map((r: any) => ({
+        id: String(r.id),
+        name: r.name || '',
+        code: r.code || '',
+        business_type: r.business_type || 'Retail & Departmental Store',
+        industry: r.industry || 'Retail & General POS',
+        description: r.description || '',
+        registration_number: r.registration_number || '',
+        tax_id: r.tax_id || '',
+        website: r.website || '',
+        country: r.country || 'Pakistan',
+        city: r.city || '',
+        logo_url: r.logo_url || '',
+        admin_email: r.admin_email || '',
+        admin_name: r.admin_name || '',
+        admin_username: r.admin_username || '',
+        admin_phone: r.admin_phone || r.phone || '',
+        phone: r.phone || '',
+        address: r.address || '',
+        plan_id: r.plan_id || 'plan-free',
+        subscription_start_date: r.subscription_start_date ? String(r.subscription_start_date).split('T')[0] : '2026-01-01',
+        subscription_expiry_date: r.subscription_expiry_date ? String(r.subscription_expiry_date).split('T')[0] : '2028-12-31',
+        max_branches: num(r.max_branches, 5),
+        max_users: num(r.max_users, 25),
+        max_pos_terminals: num(r.max_pos_terminals, 10),
+        status: r.status || (r.is_active === false ? 'suspended' : 'active'),
+        created_at: r.created_at || new Date().toISOString(),
+        is_active: r.is_active !== false,
+      }));
+      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(mapped));
+      syncedTables++;
+      totalRows += mapped.length;
+    }
 
-  if (Array.isArray(snapshot.ITEM_DEFINITIONS) && snapshot.ITEM_DEFINITIONS.length > 0) {
-    const mapped = snapshot.ITEM_DEFINITIONS.map((r: any) => ({
-      id: num(r.id),
-      item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
-      category_id: r.category_id ? num(r.category_id) : undefined,
-      brand_id: r.brand_id ? num(r.brand_id) : undefined,
-      item_code: r.item_code || r.barcode || '',
-      barcode: r.barcode || r.item_code || '',
-      item_name: r.item_name || '',
-      national_language_item_name: r.national_language_item_name || undefined,
-      unit_of_measure: r.unit_of_measure || 'PCS',
-      publisher_vendor: r.publisher_vendor || undefined,
-      image_url: r.image_url || undefined,
-      reorder_level: num(r.reorder_level, 10),
-      reorder_qty: num(r.reorder_qty, 50),
-      printed_price: num(r.printed_price),
-      purchase_discount_percent: num(r.purchase_discount_percent),
-      purchase_rate: num(r.purchase_rate),
-      weighted_average_rate: num(r.weighted_average_rate),
-      sale_discount_percent: num(r.sale_discount_percent),
-      sale_rate: num(r.sale_rate),
-      margin_percent: num(r.margin_percent),
-      packing: num(r.packing, 1),
-      bulk_rate: num(r.bulk_rate),
-      ctn_rate: num(r.ctn_rate),
-      ws_rate: num(r.ws_rate),
-      bulk_qty: num(r.bulk_qty),
-      stock_quantity: num(r.stock_quantity),
-      is_active: r.is_active !== false,
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.SUBSCRIPTION_HISTORY) && snapshot.SUBSCRIPTION_HISTORY.length > 0) {
+      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify(snapshot.SUBSCRIPTION_HISTORY));
+      syncedTables++;
+      totalRows += snapshot.SUBSCRIPTION_HISTORY.length;
+    }
 
-  if (Array.isArray(snapshot.CUSTOMERS) && snapshot.CUSTOMERS.length > 0) {
-    const mapped = snapshot.CUSTOMERS.map((r: any) => ({
-      id: num(r.id),
-      name: r.name || '',
-      phone: r.phone || '',
-      address: r.address || '',
-      total_purchase: num(r.total_purchase),
-      total_paid: num(r.total_paid),
-      total_due: num(r.total_due),
-      loyalty_points: num(r.loyalty_points),
-      qr_code: r.qr_code || undefined,
-      custom_redemption_rate: r.custom_redemption_rate !== null && r.custom_redemption_rate !== undefined ? num(r.custom_redemption_rate) : null,
-      is_active: r.is_active !== false,
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.CUSTOMERS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.BRANCHES)) {
+      const chainBranches = forActiveChain(snapshot.BRANCHES).map((r: any) => ({
+        id: String(r.id),
+        organization_id: r.chain_id || activeChainId,
+        name: r.name || '',
+        code: r.code || '',
+        branch_type: r.branch_type || 'retail_outlet',
+        contact_person: r.contact_person || '',
+        manager_user_id: r.manager_user_id ? num(r.manager_user_id) : null,
+        manager_name: r.manager_name || '',
+        address: r.address || '',
+        address_line_2: r.address_line_2 || '',
+        phone: r.phone || '',
+        cell_phone: r.cell_phone || '',
+        email: r.email || '',
+        region: r.region || '',
+        city: r.city || '',
+        postal_code: r.postal_code || '',
+        country: r.country || 'Pakistan',
+        status: r.status || (r.is_active === false ? 'inactive' : 'active'),
+        opening_date: r.opening_date ? String(r.opening_date).split('T')[0] : undefined,
+        is_head_office: Boolean(r.is_head_office),
+        is_active: r.is_active !== false,
+      }));
+      if (chainBranches.length > 0) {
+        const currentSettings = getSettings();
+        const nextActiveBranchId = chainBranches.some((b) => b.id === currentSettings.active_branch_id)
+          ? currentSettings.active_branch_id
+          : chainBranches[0].id;
+        setStoredItem(STORAGE_KEYS.SETTINGS, {
+          ...currentSettings,
+          branches: chainBranches,
+          active_branch_id: nextActiveBranchId,
+        });
+        syncedTables++;
+        totalRows += chainBranches.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.SUPPLIERS) && snapshot.SUPPLIERS.length > 0) {
-    const mapped = snapshot.SUPPLIERS.map((r: any) => ({
-      id: num(r.id),
-      name: r.name || '',
-      phone: r.phone || '',
-      address: r.address || '',
-      is_active: r.is_active !== false,
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.SUPPLIERS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.ROLES)) {
+      const chainRoles = forActiveChain(snapshot.ROLES);
+      if (chainRoles.length > 0) {
+        setStoredItem(STORAGE_KEYS.ROLES, chainRoles);
+        syncedTables++;
+        totalRows += chainRoles.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.PURCHASES) && snapshot.PURCHASES.length > 0) {
-    const mapped = snapshot.PURCHASES.map((r: any) => ({
-      id: num(r.id),
-      purchase_no: r.purchase_no || `PUR-${r.id}`,
-      supplier_id: r.supplier_id ? num(r.supplier_id) : null,
-      sub_category_id: num(r.item_id || r.sub_category_id),
-      total_pieces: num(r.quantity || r.total_pieces, 1),
-      total_cft: num(r.quantity || r.total_cft, 1),
-      rate_per_cft: num(r.unit_cost || r.rate_per_cft),
-      total_amount: num(r.total_amount),
-      paid_amount: num(r.paid_amount),
-      due_amount: num(r.due_amount),
-      purchase_date: r.purchase_date ? String(r.purchase_date).split('T')[0] : new Date().toISOString().split('T')[0],
-      notes: r.notes || '',
-      status: r.status || 'completed',
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.PURCHASES, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.USERS)) {
+      const chainUsers = snapshot.USERS
+        .filter((r: any) => r.chain_id === activeChainId || (activeChainId === 'chain-default' && (!r.chain_id || r.is_super_admin)))
+        .map((r: any) => ({
+          id: num(r.id),
+          organization_id: r.chain_id || activeChainId,
+          full_name: r.full_name || r.username || 'User',
+          username: r.username || '',
+          email: r.email || '',
+          phone: r.phone || '',
+          role: r.role || 'cashier',
+          custom_role_id: r.custom_role_id || undefined,
+          designation: r.designation || '',
+          employee_code: r.employee_code || '',
+          assigned_branch_id: r.assigned_branch_id || 'all',
+          assigned_branches: Array.isArray(r.assigned_branches) ? r.assigned_branches : [r.assigned_branch_id || 'all'],
+          pos_pin: r.pos_pin || '1234',
+          password: r.password_hash || r.pos_pin || '1234',
+          account_status: r.account_status || (r.is_active === false ? 'inactive' : 'active'),
+          is_super_admin: Boolean(r.is_super_admin),
+          is_active: r.is_active !== false,
+          permissions: r.permissions && typeof r.permissions === 'object' ? r.permissions : defaultPermissionsByRole(r.role || 'cashier'),
+          last_login: r.last_login || undefined,
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+      if (chainUsers.length > 0) {
+        setStoredItem(STORAGE_KEYS.USERS, chainUsers);
+        syncedTables++;
+        totalRows += chainUsers.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.SALES) && snapshot.SALES.length > 0) {
-    const mapped = snapshot.SALES.map((r: any) => ({
-      id: num(r.id),
-      invoice_no: r.invoice_no || `INV-${r.id}`,
-      customer_id: r.customer_id ? num(r.customer_id) : null,
-      total_items: num(r.total_items, 1),
-      total_cft: num(r.total_items, 1),
-      subtotal: num(r.subtotal),
-      tax_rate: num(r.tax_rate),
-      tax_amount: num(r.tax_amount),
-      discount: num(r.discount),
-      grand_total: num(r.grand_total),
-      paid_amount: num(r.paid_amount),
-      due_amount: num(r.due_amount),
-      payment_method: r.payment_method || 'cash',
-      points_earned: num(r.points_earned),
-      points_redeemed: num(r.points_redeemed),
-      points_discount_amount: num(r.points_discount_amount),
-      sale_date: r.sale_date || new Date().toISOString(),
-      status: r.status || 'completed',
-      notes: r.notes || '',
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.SALES, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.ITEM_GROUPS)) {
+      const rows = forActiveChain(snapshot.ITEM_GROUPS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          group_id: r.group_id || `GRP-${r.id}`,
+          group_description: r.group_description || '',
+          is_active: r.is_active !== false,
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.ITEM_GROUPS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.SALE_ITEMS) && snapshot.SALE_ITEMS.length > 0) {
-    const mapped = snapshot.SALE_ITEMS.map((r: any) => ({
-      id: num(r.id),
-      sale_id: num(r.sale_id),
-      wood_stock_id: r.item_def_id ? num(r.item_def_id) : undefined,
-      serial: r.serial_no || '',
-      sku: r.sku || '',
-      description: r.description || '',
-      qty: num(r.quantity, 1),
-      quantity: num(r.quantity, 1),
-      rate: num(r.unit_price),
-      unit_price: num(r.unit_price),
-      line_total: num(r.subtotal),
-      subtotal: num(r.subtotal),
-    }));
-    setStoredItem(STORAGE_KEYS.SALE_ITEMS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.CATEGORIES)) {
+      const rows = forActiveChain(snapshot.CATEGORIES);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
+          name: r.name || '',
+          description: r.description || '',
+          is_active: r.is_active !== false,
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.CATEGORIES, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.PAYMENTS) && snapshot.PAYMENTS.length > 0) {
-    const mapped = snapshot.PAYMENTS.map((r: any) => ({
-      id: num(r.id),
-      sale_id: r.sale_id ? num(r.sale_id) : null,
-      purchase_id: r.purchase_id ? num(r.purchase_id) : null,
-      payment_type: r.payment_type || 'customer_payment',
-      amount: num(r.amount),
-      payment_method: r.payment_method || 'cash',
-      reference_no: r.reference_no || '',
-      payment_date: r.payment_date ? String(r.payment_date).split('T')[0] : new Date().toISOString().split('T')[0],
-      notes: r.notes || '',
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.PAYMENTS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.BRANDS)) {
+      const rows = forActiveChain(snapshot.BRANDS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          code: r.code || `BRD-${r.id}`,
+          name: r.name || '',
+          description: r.description || '',
+          is_active: r.is_active !== false,
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.BRANDS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.EXPENSES) && snapshot.EXPENSES.length > 0) {
-    const mapped = snapshot.EXPENSES.map((r: any) => ({
-      id: num(r.id),
-      title: r.title || '',
-      category: r.category || 'other',
-      amount: num(r.amount),
-      expense_date: r.expense_date ? String(r.expense_date).split('T')[0] : new Date().toISOString().split('T')[0],
-      notes: r.notes || '',
-      created_by: num(r.created_by, 1),
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.EXPENSES, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
-  }
+    if (Array.isArray(snapshot.ITEM_DEFINITIONS)) {
+      const rows = forActiveChain(snapshot.ITEM_DEFINITIONS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
+          category_id: r.category_id ? num(r.category_id) : undefined,
+          brand_id: r.brand_id ? num(r.brand_id) : undefined,
+          brand_name: r.brand_name || '',
+          item_code: r.item_code || r.barcode || '',
+          barcode: r.barcode || r.item_code || '',
+          item_name: r.item_name || '',
+          national_language_item_name: r.national_language_item_name || undefined,
+          item_name_urdu: r.item_name_urdu || r.national_language_item_name || undefined,
+          unit_of_measure: r.unit_of_measure || 'PCS',
+          publisher_vendor: r.publisher_vendor || undefined,
+          image_url: r.image_url || undefined,
+          reorder_level: num(r.reorder_level, 10),
+          reorder_qty: num(r.reorder_qty, 50),
+          printed_price: num(r.printed_price),
+          purchase_discount_percent: num(r.purchase_discount_percent),
+          purchase_rate: num(r.purchase_rate),
+          weighted_average_rate: num(r.weighted_average_rate),
+          sale_discount_percent: num(r.sale_discount_percent),
+          sale_rate: num(r.sale_rate),
+          margin_percent: num(r.margin_percent),
+          packing: num(r.packing, 1),
+          bulk_rate: num(r.bulk_rate),
+          ctn_rate: num(r.ctn_rate),
+          ws_rate: num(r.ws_rate),
+          bulk_qty: num(r.bulk_qty),
+          stock_quantity: num(r.stock_quantity),
+          is_active: r.is_active !== false,
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
 
-  if (Array.isArray(snapshot.ACTIVITY_LOGS) && snapshot.ACTIVITY_LOGS.length > 0) {
-    const mapped = snapshot.ACTIVITY_LOGS.map((r: any) => ({
-      id: num(r.id),
-      user_id: num(r.user_id, 1),
-      username: r.username || 'system',
-      action: r.action || 'UPDATE',
-      table_name: r.table_name || 'SYSTEM',
-      record_id: r.record_id || '',
-      details: r.details || '',
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    setStoredItem(STORAGE_KEYS.LOGS, mapped);
-    syncedTables++;
-    totalRows += mapped.length;
+    if (Array.isArray(snapshot.CUSTOMERS)) {
+      const rows = forActiveChain(snapshot.CUSTOMERS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          name: r.name || '',
+          phone: r.phone || '',
+          address: r.address || '',
+          total_purchase: num(r.total_purchase),
+          total_paid: num(r.total_paid),
+          total_due: num(r.total_due),
+          loyalty_points: num(r.loyalty_points),
+          qr_code: r.qr_code || undefined,
+          custom_redemption_rate: r.custom_redemption_rate !== null && r.custom_redemption_rate !== undefined ? num(r.custom_redemption_rate) : null,
+          custom_scan_behavior: r.custom_scan_behavior || null,
+          is_active: r.is_active !== false,
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.CUSTOMERS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    if (Array.isArray(snapshot.SUPPLIERS)) {
+      const rows = forActiveChain(snapshot.SUPPLIERS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          name: r.name || '',
+          phone: r.phone || '',
+          address: r.address || '',
+          is_active: r.is_active !== false,
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.SUPPLIERS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    if (Array.isArray(snapshot.PURCHASES)) {
+      const rows = forActiveChain(snapshot.PURCHASES);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          purchase_no: r.purchase_no || `PUR-${r.id}`,
+          supplier_id: r.supplier_id ? num(r.supplier_id) : null,
+          sub_category_id: num(r.item_id || r.sub_category_id),
+          total_pieces: num(r.quantity || r.total_pieces, 1),
+          total_cft: num(r.total_cft || r.quantity, 1),
+          rate_per_cft: num(r.unit_cost || r.rate_per_cft),
+          total_amount: num(r.total_amount),
+          paid_amount: num(r.paid_amount),
+          due_amount: num(r.due_amount),
+          purchase_date: r.purchase_date ? String(r.purchase_date).split('T')[0] : new Date().toISOString().split('T')[0],
+          notes: r.notes || '',
+          status: r.status || 'completed',
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.PURCHASES, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    const activeSaleIds = new Set<number>();
+    if (Array.isArray(snapshot.SALES)) {
+      const rows = forActiveChain(snapshot.SALES);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => {
+          const saleId = num(r.id);
+          activeSaleIds.add(saleId);
+          return {
+            id: saleId,
+            invoice_no: r.invoice_no || `INV-${r.id}`,
+            customer_id: r.customer_id ? num(r.customer_id) : null,
+            total_items: num(r.total_items, 1),
+            total_cft: num(r.total_cft || r.total_items, 1),
+            subtotal: num(r.subtotal),
+            tax_rate: num(r.tax_rate),
+            tax_amount: num(r.tax_amount),
+            discount: num(r.discount),
+            grand_total: num(r.grand_total),
+            paid_amount: num(r.paid_amount),
+            due_amount: num(r.due_amount),
+            payment_method: r.payment_method || 'cash',
+            points_earned: num(r.points_earned),
+            points_redeemed: num(r.points_redeemed),
+            points_discount_amount: num(r.points_discount_amount),
+            sale_date: r.sale_date || new Date().toISOString(),
+            status: r.status || 'completed',
+            notes: r.notes || '',
+            created_by: num(r.created_by, 1),
+            created_at: r.created_at || new Date().toISOString(),
+          };
+        });
+        setStoredItem(STORAGE_KEYS.SALES, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    if (Array.isArray(snapshot.SALE_ITEMS) && snapshot.SALE_ITEMS.length > 0) {
+      const rows = activeSaleIds.size > 0
+        ? snapshot.SALE_ITEMS.filter((r: any) => activeSaleIds.has(num(r.sale_id)))
+        : snapshot.SALE_ITEMS;
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          sale_id: num(r.sale_id),
+          wood_stock_id: r.item_def_id ? num(r.item_def_id) : r.wood_stock_id ? num(r.wood_stock_id) : undefined,
+          serial: r.serial_no || r.serial || '',
+          sku: r.sku || '',
+          description: r.description || '',
+          qty: num(r.quantity || r.qty, 1),
+          quantity: num(r.quantity || r.qty, 1),
+          rate: num(r.unit_price || r.rate),
+          unit_price: num(r.unit_price || r.rate),
+          line_total: num(r.subtotal || r.line_total),
+          subtotal: num(r.subtotal || r.line_total),
+        }));
+        setStoredItem(STORAGE_KEYS.SALE_ITEMS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    if (Array.isArray(snapshot.PAYMENTS)) {
+      const rows = forActiveChain(snapshot.PAYMENTS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          sale_id: r.sale_id ? num(r.sale_id) : null,
+          purchase_id: r.purchase_id ? num(r.purchase_id) : null,
+          payment_type: r.payment_type || 'customer_payment',
+          amount: num(r.amount),
+          payment_method: r.payment_method || 'cash',
+          reference_no: r.reference_no || '',
+          payment_date: r.payment_date ? String(r.payment_date).split('T')[0] : new Date().toISOString().split('T')[0],
+          notes: r.notes || '',
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.PAYMENTS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    if (Array.isArray(snapshot.EXPENSES)) {
+      const rows = forActiveChain(snapshot.EXPENSES);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          title: r.title || '',
+          category: r.category || 'other',
+          amount: num(r.amount),
+          expense_date: r.expense_date ? String(r.expense_date).split('T')[0] : new Date().toISOString().split('T')[0],
+          notes: r.notes || '',
+          created_by: num(r.created_by, 1),
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.EXPENSES, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+
+    if (Array.isArray(snapshot.ACTIVITY_LOGS)) {
+      const rows = forActiveChain(snapshot.ACTIVITY_LOGS);
+      if (rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: num(r.id),
+          organization_id: r.organization_id || r.chain_id || activeChainId,
+          organization_name: r.organization_name || '',
+          branch_id: r.branch_id || undefined,
+          branch_name: r.branch_name || undefined,
+          user_id: num(r.user_id, 1),
+          username: r.username || 'system',
+          action: r.action || 'UPDATE',
+          table_name: r.table_name || 'SYSTEM',
+          record_id: r.record_id || '',
+          details: r.details || '',
+          created_at: r.created_at || new Date().toISOString(),
+        }));
+        setStoredItem(STORAGE_KEYS.LOGS, mapped);
+        syncedTables++;
+        totalRows += mapped.length;
+      }
+    }
+  } finally {
+    suppressPgSync = false;
   }
 
   notifyStorageChange();

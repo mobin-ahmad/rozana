@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import {
   getCurrentUser,
   getIsAuthenticated,
@@ -6,8 +6,10 @@ import {
   subscribeToStorage,
   isUserSuperAdmin,
   getActiveStoreChain,
-  getOrganizationAccessState
+  getOrganizationAccessState,
+  syncAllLocalToPostgres
 } from './lib/storage';
+import { databaseService } from './lib/databaseService';
 import { User } from './types';
 import { LoginScreen } from './components/LoginScreen';
 import { Navbar } from './components/Navbar';
@@ -91,6 +93,21 @@ export function App() {
   const [activeTab, setActiveTab] = useState<string>('zpos');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+  const hasAutoSyncedPgRef = useRef<boolean>(false);
+
+  // Check PostgreSQL connection and auto-sync existing local data once connected
+  useEffect(() => {
+    const unsubDb = databaseService.subscribe((status) => {
+      if (status.connected && !hasAutoSyncedPgRef.current) {
+        hasAutoSyncedPgRef.current = true;
+        void syncAllLocalToPostgres().then(() => {
+          void databaseService.checkStatus();
+        });
+      }
+    });
+    void databaseService.checkStatus();
+    return () => unsubDb();
+  }, []);
 
   // Subscribe to storage changes to keep currentUser and authentication in sync across screens
   useEffect(() => {

@@ -11,10 +11,11 @@ import {
   Check,
   X,
   Download,
+  Upload,
   Table as TableIcon
 } from 'lucide-react';
 import { databaseService, DbConnectionStatus } from '../lib/databaseService';
-import { TABLE_NAMES, hydrateFromPostgresSnapshot } from '../lib/storage';
+import { TABLE_NAMES, hydrateFromPostgresSnapshot, syncAllLocalToPostgres } from '../lib/storage';
 
 interface DatabaseModalProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
   const [loading, setLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -92,14 +94,33 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
 
       if (res.success && res.status) {
         setHost(res.status.host || host);
+        const pushRes = await syncAllLocalToPostgres();
+        await databaseService.checkStatus();
         setSuccessMsg(
-          `Connected to "${res.status.database}" on ${res.status.host}:${res.status.port} and saved configuration to .env!`
+          `Connected to "${res.status.database}" on ${res.status.host}:${res.status.port}, saved configuration to .env, and ${pushRes.success ? `synced ${pushRes.syncedCount} local record(s)!` : 'enabled live auto-sync.'}`
         );
       } else {
         setErrorMsg(res.error || 'Failed to connect with provided settings.');
       }
     } finally {
       setSaveLoading(false);
+    }
+  };
+
+  const handlePushToPostgres = async () => {
+    setPushLoading(true);
+    setSuccessMsg(null);
+    setErrorMsg(null);
+    try {
+      const res = await syncAllLocalToPostgres();
+      await databaseService.checkStatus();
+      if (res.success) {
+        setSuccessMsg(res.message);
+      } else {
+        setErrorMsg(res.message);
+      }
+    } finally {
+      setPushLoading(false);
     }
   };
 
@@ -173,7 +194,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                       status.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
                     }`}
                   />
-                  {status.connected ? 'Live Connected' : 'Disconnected / Standby'}
+                  {status.connected ? 'Live Connected • Auto-Sync Active' : 'Disconnected / Standby'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -289,17 +310,28 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
                 <Server className="w-4 h-4 text-blue-400" />
                 PostgreSQL Connection Parameters
               </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {status.connected && (
-                  <button
-                    type="button"
-                    onClick={handlePullFromPostgres}
-                    disabled={syncLoading}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Download className={`w-3.5 h-3.5 ${syncLoading ? 'animate-bounce' : ''}`} />
-                    {syncLoading ? 'Syncing...' : 'Pull Data from rozana'}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handlePushToPostgres}
+                      disabled={pushLoading}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Upload className={`w-3.5 h-3.5 ${pushLoading ? 'animate-bounce' : ''}`} />
+                      {pushLoading ? 'Pushing...' : `Push Local → ${status.database || 'rozana'}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePullFromPostgres}
+                      disabled={syncLoading}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Download className={`w-3.5 h-3.5 ${syncLoading ? 'animate-bounce' : ''}`} />
+                      {syncLoading ? 'Syncing...' : `Pull Data from ${status.database || 'rozana'}`}
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
