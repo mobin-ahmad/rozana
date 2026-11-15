@@ -23,13 +23,20 @@ import { databaseService } from '../lib/databaseService';
 import {
   PurgeTargetKey,
   getLocalPurgeCounts,
-  purgeSelectedLocalData
+  purgeSelectedLocalData,
+  getStoreChains
 } from '../lib/storage';
 
 interface DatabasePurgeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPurged?: () => void;
+}
+
+interface OrgOption {
+  id: string;
+  name: string;
+  code: string;
 }
 
 interface PurgeOptionConfig {
@@ -110,12 +117,42 @@ const PURGE_OPTIONS: PurgeOptionConfig[] = [
   },
 ];
 
+function mergeOrgLists(
+  dbOrgs: Array<{ id: string; name: string; code: string }> | undefined,
+  includeLocal: boolean = true
+): OrgOption[] {
+  const byId = new Map<string, OrgOption>();
+  if (includeLocal) {
+    for (const c of getStoreChains()) {
+      if (!c?.id) continue;
+      byId.set(c.id, {
+        id: c.id,
+        name: String(c.name || c.id).toUpperCase(),
+        code: String(c.code || '').toUpperCase(),
+      });
+    }
+  }
+  if (Array.isArray(dbOrgs)) {
+    for (const o of dbOrgs) {
+      if (!o?.id) continue;
+      byId.set(o.id, {
+        id: o.id,
+        name: String(o.name || o.id).toUpperCase(),
+        code: String(o.code || '').toUpperCase(),
+      });
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
   isOpen,
   onClose,
   onPurged,
 }) => {
   const [selected, setSelected] = useState<Set<PurgeTargetKey>>(new Set());
+  const [selectedChainId, setSelectedChainId] = useState<string>('ALL');
+  const [orgOptions, setOrgOptions] = useState<OrgOption[]>(() => mergeOrgLists(undefined, true));
   const [confirmChecked, setConfirmChecked] = useState(false);
   const [loadingCounts, setLoadingCounts] = useState(false);
   const [purging, setPurging] = useState(false);
@@ -124,17 +161,19 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
   const [dbName, setDbName] = useState('rozana');
   const [dbHostPort, setDbHostPort] = useState('localhost:5432');
   const [dbCounts, setDbCounts] = useState<Record<string, number>>({});
-  const [localCounts, setLocalCounts] = useState<Record<PurgeTargetKey, number>>(getLocalPurgeCounts());
+  const [localCounts, setLocalCounts] = useState<Record<PurgeTargetKey, number>>(() =>
+    getLocalPurgeCounts('ALL')
+  );
   const [globalPreservedCount, setGlobalPreservedCount] = useState(1);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const refreshCounts = useCallback(async () => {
+  const refreshCounts = useCallback(async (chainScope: string = 'ALL') => {
     setLoadingCounts(true);
-    setLocalCounts(getLocalPurgeCounts());
+    setLocalCounts(getLocalPurgeCounts(chainScope));
     try {
-      const res = await databaseService.getPurgeCounts();
+      const res = await databaseService.getPurgeCounts(chainScope);
       setDbConnected(Boolean(res.connected));
       if (res.database) setDbName(res.database);
       if (res.host && res.port) setDbHostPort(`${res.host}:${res.port}`);
@@ -142,6 +181,7 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
       if (typeof res.globalUsersPreserved === 'number') {
         setGlobalPreservedCount(res.globalUsersPreserved);
       }
+      setOrgOptions(mergeOrgLists(res.organizationsList, true));
       if (!res.connected && res.error) {
         setErrorMsg(`PostgreSQL offline (${res.error}). Deleting will still clear local cache; reconnect DB to purge PostgreSQL rows.`);
       } else {
@@ -155,14 +195,29 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSelected(new Set());
+      setSelectedChainId('ALL');
       setConfirmChecked(false);
       setSuccessMsg(null);
       setErrorMsg(null);
-      void refreshCounts();
+      setOrgOptions(mergeOrgLists(undefined, true));
+      void refreshCounts('ALL');
     }
   }, [isOpen, refreshCounts]);
 
   if (!isOpen) return null;
+
+  const selectedOrg =
+    selectedChainId !== 'ALL' ? orgOptions.find((o) => o.id === selectedChainId) : undefined;
+  const scopeDisplayName = selectedOrg
+    ? `${selectedOrg.name}${selectedOrg.code ? ` (${selectedOrg.code})` : ''}`
+    : 'ALL ORGANIZATIONS';
+
+  const handleOrgScopeChange = (newChainId: string) => {
+    setSelectedChainId(newChainId);
+    setConfirmChecked(false);
+    setSuccessMsg(null);
+    void refreshCounts(newChainId);
+  };
 
   const toggleTarget = (key: PurgeTargetKey) => {
     setSuccessMsg(null);
@@ -200,14 +255,18 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
   const handleDeleteSelected = async () => {
     if (selected.size === 0 || !confirmChecked) return;
     const targets = Array.from(selected);
+    const activeScope = selectedChainId;
+    const activeScopeLabel = scopeDisplayName;
+
     setPurging(true);
     setErrorMsg(null);
     setSuccessMsg(null);
 
     try {
       let pgSummary = '';
+      let latestDbOrgs: Array<{ id: string; name: string; code: string }> | undefined;
       if (dbConnected) {
-        const pgRes = await databaseService.purgeRecords(targets);
+        const pgRes = await databaseService.purgeRecords(targets, activeScope);
         if (!pgRes.success) {
           setErrorMsg(pgRes.error || 'Failed to delete selected records from PostgreSQL.');
           setPurging(false);
@@ -218,6 +277,7 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
           0
         );
         pgSummary = `${totalPgDeleted} record(s) removed from PostgreSQL "${pgRes.database || dbName}"`;
+        latestDbOrgs = pgRes.organizationsList;
         if (pgRes.remainingCounts) {
           setDbCounts(pgRes.remainingCounts);
         }
@@ -226,16 +286,34 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
         }
       }
 
-      purgeSelectedLocalData(targets);
-      setLocalCounts(getLocalPurgeCounts());
+      purgeSelectedLocalData(targets, activeScope);
       await databaseService.checkStatus();
 
       const deletedLabels = PURGE_OPTIONS.filter((o) => selected.has(o.key))
         .map((o) => o.label)
         .join(', ');
 
+      // If the currently scoped organization itself was deleted, reset scope back to ALL and refresh
+      const orgWasDeleted = targets.includes('organizations') && activeScope !== 'ALL';
+      const nextScope = orgWasDeleted ? 'ALL' : activeScope;
+      if (orgWasDeleted) {
+        setSelectedChainId('ALL');
+      }
+
+      const mergedOrgs = mergeOrgLists(latestDbOrgs, true);
+      setOrgOptions(mergedOrgs);
+      setLocalCounts(getLocalPurgeCounts(nextScope));
+
+      if (orgWasDeleted && dbConnected) {
+        const refreshed = await databaseService.getPurgeCounts('ALL');
+        if (refreshed.counts) setDbCounts(refreshed.counts);
+        if (refreshed.organizationsList) {
+          setOrgOptions(mergeOrgLists(refreshed.organizationsList, true));
+        }
+      }
+
       setSuccessMsg(
-        `${pgSummary ? `${pgSummary} and local storage synced` : 'Local storage records cleared'} for: ${deletedLabels}. Global User (mobin) was preserved.`
+        `${pgSummary ? `${pgSummary} and local storage synced` : 'Local storage records cleared'} (${activeScope === 'ALL' ? 'All Organizations' : `Organization: ${activeScopeLabel}`}) for: ${deletedLabels}. Global User (mobin) was preserved.`
       );
       setSelected(new Set());
       setConfirmChecked(false);
@@ -261,7 +339,7 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
                 Delete Database Records
               </h2>
               <p className="text-[11px] text-slate-400 truncate">
-                Select specific database tables to purge from local PostgreSQL &amp; terminal cache
+                Select organization scope and database tables to purge from local PostgreSQL &amp; terminal cache
               </p>
             </div>
           </div>
@@ -279,7 +357,7 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
             </span>
             <button
               type="button"
-              onClick={() => void refreshCounts()}
+              onClick={() => void refreshCounts(selectedChainId)}
               disabled={loadingCounts || purging}
               title="Refresh record counts"
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer disabled:opacity-50"
@@ -318,6 +396,46 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
                 The Global Super Administrator (<span className="font-mono text-amber-300">mobin</span>) is always excluded from deletion so platform access and administration remain available.
               </p>
             </div>
+          </div>
+
+          {/* Organization Scope Selector */}
+          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-400/30 text-indigo-300 flex items-center justify-center shrink-0">
+                <Building2 className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <label
+                  htmlFor="purge-org-select"
+                  className="block text-xs font-extrabold text-white"
+                >
+                  Select Organization Scope
+                </label>
+                <p className="text-[11px] text-slate-400 truncate">
+                  {selectedChainId === 'ALL'
+                    ? 'Applies to all registered organizations & store chains'
+                    : `Scoped only to ${scopeDisplayName} — other organizations stay intact`}
+                </p>
+              </div>
+            </div>
+
+            <select
+              id="purge-org-select"
+              value={selectedChainId}
+              disabled={purging || loadingCounts}
+              onChange={(e) => handleOrgScopeChange(e.target.value)}
+              className="w-full sm:w-64 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-bold text-white uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-60"
+            >
+              <option value="ALL">
+                ALL ORGANIZATIONS ({orgOptions.length})
+              </option>
+              {orgOptions.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                  {org.code ? ` (${org.code})` : ''}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Feedback Alerts */}
@@ -433,7 +551,8 @@ export const DatabasePurgeModal: React.FC<DatabasePurgeModalProps> = ({
               <span className="text-xs text-slate-300 font-medium">
                 I confirm permanent deletion of{' '}
                 <strong className="text-white">{selected.size}</strong> selected category/categories (
-                <strong className="text-rose-300">{totalSelectedRecords}</strong> record(s) currently detected), keeping the Global User safe.
+                <strong className="text-rose-300">{totalSelectedRecords}</strong> record(s) in{' '}
+                <strong className="text-indigo-300">{scopeDisplayName}</strong>), keeping the Global User safe.
               </span>
             </label>
 

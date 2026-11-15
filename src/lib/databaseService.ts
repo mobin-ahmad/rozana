@@ -333,24 +333,28 @@ export const databaseService = {
     }
   },
 
-  async getPurgeCounts(): Promise<{
+  async getPurgeCounts(chainId?: string): Promise<{
     success: boolean;
     connected: boolean;
     database?: string;
     host?: string;
     port?: number;
+    chainId?: string;
+    organizationsList?: Array<{ id: string; name: string; code: string }>;
     counts: Record<string, number>;
     globalUsersPreserved: number;
     error?: string;
   }> {
     try {
-      const res = await fetch('/api/db/purge-counts');
+      const qs = chainId && chainId !== 'ALL' ? `?chain_id=${encodeURIComponent(chainId)}` : '';
+      const res = await fetch(`/api/db/purge-counts${qs}`);
       const data = await res.json();
       return data;
     } catch (err: unknown) {
       return {
         success: false,
         connected: false,
+        organizationsList: [],
         counts: {
           organizations: 0,
           branches: 0,
@@ -367,10 +371,15 @@ export const databaseService = {
     }
   },
 
-  async purgeRecords(targets: string[]): Promise<{
+  async purgeRecords(
+    targets: string[],
+    chainId?: string
+  ): Promise<{
     success: boolean;
     connected: boolean;
     database?: string;
+    chainId?: string;
+    organizationsList?: Array<{ id: string; name: string; code: string }>;
     deletedCounts?: Record<string, number>;
     remainingCounts?: Record<string, number>;
     globalUsersPreserved?: number;
@@ -380,7 +389,10 @@ export const databaseService = {
       const res = await fetch('/api/db/purge-records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets }),
+        body: JSON.stringify({
+          targets,
+          chainId: chainId && chainId !== 'ALL' ? chainId : 'ALL',
+        }),
       });
       return await res.json();
     } catch (err: unknown) {

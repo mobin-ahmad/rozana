@@ -4664,9 +4664,10 @@ function collectAllKnownChainIds(): string[] {
   return Array.from(ids);
 }
 
-export function getLocalPurgeCounts(): Record<PurgeTargetKey, number> {
+export function getLocalPurgeCounts(chainId?: string): Record<PurgeTargetKey, number> {
   const chains = getStoreChains();
-  const chainIds = collectAllKnownChainIds();
+  const scopedId = chainId && chainId !== 'ALL' ? chainId : null;
+  const chainIds = scopedId ? [scopedId] : collectAllKnownChainIds();
 
   let branchesCount = 0;
   let usersCount = 0;
@@ -4677,7 +4678,7 @@ export function getLocalPurgeCounts(): Record<PurgeTargetKey, number> {
   let customersCount = 0;
 
   for (const cid of chainIds) {
-    // Only count branches for active chains if chains exist, or chain-default if none
+    // Only count branches for existing organizations
     if (chains.some((c) => c.id === cid)) {
       branchesCount += getOrganizationBranches(cid).length;
     }
@@ -4690,7 +4691,7 @@ export function getLocalPurgeCounts(): Record<PurgeTargetKey, number> {
   }
 
   return {
-    organizations: chains.length,
+    organizations: scopedId ? (chains.some((c) => c.id === scopedId) ? 1 : 0) : chains.length,
     branches: branchesCount,
     users: usersCount,
     item_definitions: itemDefsCount,
@@ -4701,10 +4702,11 @@ export function getLocalPurgeCounts(): Record<PurgeTargetKey, number> {
   };
 }
 
-export function purgeSelectedLocalData(targets: PurgeTargetKey[]): void {
+export function purgeSelectedLocalData(targets: PurgeTargetKey[], chainId?: string): void {
   if (!targets || targets.length === 0) return;
   const targetSet = new Set<PurgeTargetKey>(targets);
-  const chainIds = collectAllKnownChainIds();
+  const scopedId = chainId && chainId !== 'ALL' ? chainId : null;
+  const chainIds = scopedId ? [scopedId] : collectAllKnownChainIds();
 
   suppressPgSync = true;
   try {
@@ -4740,7 +4742,9 @@ export function purgeSelectedLocalData(targets: PurgeTargetKey[]): void {
     }
 
     if (targetSet.has('branches')) {
-      localStorage.setItem(PURGE_FLAG_KEYS.BRANCHES_PURGED, 'true');
+      if (!scopedId) {
+        localStorage.setItem(PURGE_FLAG_KEYS.BRANCHES_PURGED, 'true');
+      }
       for (const cid of chainIds) {
         const settingsKey = getTenantStorageKey(STORAGE_KEYS.SETTINGS, cid);
         try {
@@ -4779,10 +4783,36 @@ export function purgeSelectedLocalData(targets: PurgeTargetKey[]): void {
     }
 
     if (targetSet.has('organizations')) {
-      localStorage.setItem(PURGE_FLAG_KEYS.ORGS_PURGED, 'true');
-      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, 'chain-default');
+      if (scopedId) {
+        const remainingChains = getStoreChains().filter((c) => c.id !== scopedId);
+        localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(remainingChains));
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.ROLES, scopedId), JSON.stringify([]));
+
+        try {
+          const rawHistory = localStorage.getItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY);
+          const parsedHistory = rawHistory ? JSON.parse(rawHistory) : [];
+          if (Array.isArray(parsedHistory)) {
+            const filteredHistory = parsedHistory.filter(
+              (h: { organization_id?: string }) => h?.organization_id !== scopedId
+            );
+            localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify(filteredHistory));
+          }
+        } catch {
+          // ignore
+        }
+
+        if (remainingChains.length === 0) {
+          localStorage.setItem(PURGE_FLAG_KEYS.ORGS_PURGED, 'true');
+          localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, 'chain-default');
+        } else if (localStorage.getItem(STORAGE_KEYS.ACTIVE_CHAIN_ID) === scopedId) {
+          localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, remainingChains[0].id);
+        }
+      } else {
+        localStorage.setItem(PURGE_FLAG_KEYS.ORGS_PURGED, 'true');
+        localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, 'chain-default');
+      }
     }
   } finally {
     suppressPgSync = false;

@@ -1375,48 +1375,82 @@ const PURGE_TARGET_ORDER = [
 
 type PurgeTarget = (typeof PURGE_TARGET_ORDER)[number];
 
-async function queryPurgeCounts(client: pkg.PoolClient) {
-  const safeCount = async (sql: string): Promise<number> => {
+async function queryPurgeCounts(client: pkg.PoolClient, scopedChainId?: string | null) {
+  const safeCount = async (sql: string, params: unknown[] = []): Promise<number> => {
     try {
-      const r = await client.query(sql);
+      const r = await client.query(sql, params);
       return Number(r.rows[0]?.cnt ?? 0);
     } catch {
       return 0;
     }
   };
 
-  const counts: Record<PurgeTarget, number> = {
-    organizations: await safeCount('SELECT COUNT(*)::int AS cnt FROM "STORE_CHAINS"'),
-    branches: await safeCount('SELECT COUNT(*)::int AS cnt FROM "BRANCHES"'),
-    users: await safeCount(
-      `SELECT COUNT(*)::int AS cnt FROM "USERS" WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
-    ),
-    item_definitions: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_DEFINITIONS"'),
-    item_groups: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_GROUPS"'),
-    categories: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CATEGORIES"'),
-    suppliers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "SUPPLIERS"'),
-    customers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CUSTOMERS"'),
-  };
+  let organizationsList: Array<{ id: string; name: string; code: string }> = [];
+  try {
+    const orgRes = await client.query('SELECT id, name, code FROM "STORE_CHAINS" ORDER BY name ASC');
+    organizationsList = orgRes.rows.map((r) => {
+      const norm = normalizePgRowUppercase(r as Record<string, unknown>);
+      return {
+        id: String(r.id || ''),
+        name: String(norm.name || r.id || ''),
+        code: String(norm.code || ''),
+      };
+    });
+  } catch {
+    organizationsList = [];
+  }
+
+  const counts: Record<PurgeTarget, number> = scopedChainId
+    ? {
+        organizations: await safeCount('SELECT COUNT(*)::int AS cnt FROM "STORE_CHAINS" WHERE id = $1', [scopedChainId]),
+        branches: await safeCount('SELECT COUNT(*)::int AS cnt FROM "BRANCHES" WHERE chain_id = $1', [scopedChainId]),
+        users: await safeCount(
+          `SELECT COUNT(*)::int AS cnt FROM "USERS" WHERE chain_id = $1 AND NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`,
+          [scopedChainId]
+        ),
+        item_definitions: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_DEFINITIONS" WHERE chain_id = $1', [scopedChainId]),
+        item_groups: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_GROUPS" WHERE chain_id = $1', [scopedChainId]),
+        categories: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CATEGORIES" WHERE chain_id = $1', [scopedChainId]),
+        suppliers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "SUPPLIERS" WHERE chain_id = $1', [scopedChainId]),
+        customers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CUSTOMERS" WHERE chain_id = $1', [scopedChainId]),
+      }
+    : {
+        organizations: await safeCount('SELECT COUNT(*)::int AS cnt FROM "STORE_CHAINS"'),
+        branches: await safeCount('SELECT COUNT(*)::int AS cnt FROM "BRANCHES"'),
+        users: await safeCount(
+          `SELECT COUNT(*)::int AS cnt FROM "USERS" WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
+        ),
+        item_definitions: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_DEFINITIONS"'),
+        item_groups: await safeCount('SELECT COUNT(*)::int AS cnt FROM "ITEM_GROUPS"'),
+        categories: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CATEGORIES"'),
+        suppliers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "SUPPLIERS"'),
+        customers: await safeCount('SELECT COUNT(*)::int AS cnt FROM "CUSTOMERS"'),
+      };
 
   const globalUsersPreserved = await safeCount(
     `SELECT COUNT(*)::int AS cnt FROM "USERS" WHERE COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin'`
   );
 
-  return { counts, globalUsersPreserved };
+  return { counts, globalUsersPreserved, organizationsList };
 }
 
 // 11. Selective Purge Record Counts
-app.get('/api/db/purge-counts', async (_req: Request, res: Response) => {
+app.get('/api/db/purge-counts', async (req: Request, res: Response) => {
+  const rawChainId = typeof req.query?.chain_id === 'string' ? req.query.chain_id.trim() : '';
+  const scopedChainId = rawChainId && rawChainId.toUpperCase() !== 'ALL' ? rawChainId : null;
+
   try {
     const client = await connectWithIpv4Fallback();
     try {
-      const { counts, globalUsersPreserved } = await queryPurgeCounts(client);
+      const { counts, globalUsersPreserved, organizationsList } = await queryPurgeCounts(client, scopedChainId);
       res.json({
         success: true,
         connected: true,
         database: currentConfig.database,
         host: currentConfig.host,
         port: currentConfig.port,
+        chainId: scopedChainId || 'ALL',
+        organizationsList,
         counts,
         globalUsersPreserved,
       });
@@ -1428,6 +1462,8 @@ app.get('/api/db/purge-counts', async (_req: Request, res: Response) => {
       success: false,
       connected: false,
       database: currentConfig.database,
+      chainId: scopedChainId || 'ALL',
+      organizationsList: [],
       error: (err as Error).message,
       counts: {
         organizations: 0,
@@ -1447,6 +1483,9 @@ app.get('/api/db/purge-counts', async (_req: Request, res: Response) => {
 // 12. Selective Database Record Purge (Preserves Global Super Admin User)
 app.post('/api/db/purge-records', async (req: Request, res: Response) => {
   const rawTargets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+  const rawChainId = typeof req.body?.chainId === 'string' ? req.body.chainId.trim() : '';
+  const scopedChainId = rawChainId && rawChainId.toUpperCase() !== 'ALL' ? rawChainId : null;
+
   const validSet = new Set<PurgeTarget>(
     rawTargets
       .map((t: unknown) => String(t).trim().toLowerCase() as PurgeTarget)
@@ -1472,53 +1511,89 @@ app.post('/api/db/purge-records', async (req: Request, res: Response) => {
         let result;
         switch (target) {
           case 'item_definitions':
-            result = await client.query('DELETE FROM "ITEM_DEFINITIONS"');
+            result = scopedChainId
+              ? await client.query('DELETE FROM "ITEM_DEFINITIONS" WHERE chain_id = $1', [scopedChainId])
+              : await client.query('DELETE FROM "ITEM_DEFINITIONS"');
             deletedCounts.item_definitions = result.rowCount ?? 0;
             break;
           case 'categories':
-            result = await client.query('DELETE FROM "CATEGORIES"');
+            result = scopedChainId
+              ? await client.query('DELETE FROM "CATEGORIES" WHERE chain_id = $1', [scopedChainId])
+              : await client.query('DELETE FROM "CATEGORIES"');
             deletedCounts.categories = result.rowCount ?? 0;
             break;
           case 'item_groups':
-            result = await client.query('DELETE FROM "ITEM_GROUPS"');
+            result = scopedChainId
+              ? await client.query('DELETE FROM "ITEM_GROUPS" WHERE chain_id = $1', [scopedChainId])
+              : await client.query('DELETE FROM "ITEM_GROUPS"');
             deletedCounts.item_groups = result.rowCount ?? 0;
             break;
           case 'suppliers':
-            result = await client.query('DELETE FROM "SUPPLIERS"');
+            result = scopedChainId
+              ? await client.query('DELETE FROM "SUPPLIERS" WHERE chain_id = $1', [scopedChainId])
+              : await client.query('DELETE FROM "SUPPLIERS"');
             deletedCounts.suppliers = result.rowCount ?? 0;
             break;
           case 'customers':
-            result = await client.query('DELETE FROM "CUSTOMERS"');
+            result = scopedChainId
+              ? await client.query('DELETE FROM "CUSTOMERS" WHERE chain_id = $1', [scopedChainId])
+              : await client.query('DELETE FROM "CUSTOMERS"');
             deletedCounts.customers = result.rowCount ?? 0;
             break;
           case 'branches':
-            result = await client.query('DELETE FROM "BRANCHES"');
+            result = scopedChainId
+              ? await client.query('DELETE FROM "BRANCHES" WHERE chain_id = $1', [scopedChainId])
+              : await client.query('DELETE FROM "BRANCHES"');
             deletedCounts.branches = result.rowCount ?? 0;
-            await client.query(
-              `UPDATE "USERS" SET assigned_branch_id = 'all', assigned_branches = '["all"]'::jsonb WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
-            );
+            if (scopedChainId) {
+              await client.query(
+                `UPDATE "USERS" SET assigned_branch_id = 'all', assigned_branches = '["all"]'::jsonb WHERE chain_id = $1 AND NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`,
+                [scopedChainId]
+              );
+            } else {
+              await client.query(
+                `UPDATE "USERS" SET assigned_branch_id = 'all', assigned_branches = '["all"]'::jsonb WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
+              );
+            }
             break;
           case 'users':
-            result = await client.query(
-              `DELETE FROM "USERS" WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
-            );
+            result = scopedChainId
+              ? await client.query(
+                  `DELETE FROM "USERS" WHERE chain_id = $1 AND NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`,
+                  [scopedChainId]
+                )
+              : await client.query(
+                  `DELETE FROM "USERS" WHERE NOT (COALESCE(is_super_admin, FALSE) = TRUE OR LOWER(username) = 'mobin')`
+                );
             deletedCounts.users = result.rowCount ?? 0;
             break;
           case 'organizations':
-            result = await client.query('DELETE FROM "STORE_CHAINS"');
-            deletedCounts.organizations = result.rowCount ?? 0;
-            await client.query('DELETE FROM "SUBSCRIPTION_HISTORY"');
-            await client.query('DELETE FROM "ROLES"');
+            if (scopedChainId) {
+              result = await client.query('DELETE FROM "STORE_CHAINS" WHERE id = $1', [scopedChainId]);
+              deletedCounts.organizations = result.rowCount ?? 0;
+              await client.query('DELETE FROM "SUBSCRIPTION_HISTORY" WHERE organization_id = $1', [scopedChainId]);
+              await client.query('DELETE FROM "ROLES" WHERE chain_id = $1', [scopedChainId]);
+            } else {
+              result = await client.query('DELETE FROM "STORE_CHAINS"');
+              deletedCounts.organizations = result.rowCount ?? 0;
+              await client.query('DELETE FROM "SUBSCRIPTION_HISTORY"');
+              await client.query('DELETE FROM "ROLES"');
+            }
             break;
         }
       }
 
       await client.query('COMMIT');
-      const { counts: remainingCounts, globalUsersPreserved } = await queryPurgeCounts(client);
+      const { counts: remainingCounts, globalUsersPreserved, organizationsList } = await queryPurgeCounts(
+        client,
+        scopedChainId
+      );
       res.json({
         success: true,
         connected: true,
         database: currentConfig.database,
+        chainId: scopedChainId || 'ALL',
+        organizationsList,
         deletedCounts,
         remainingCounts,
         globalUsersPreserved,
