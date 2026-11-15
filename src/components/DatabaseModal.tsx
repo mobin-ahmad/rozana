@@ -94,10 +94,11 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({ isOpen, onClose })
 
       if (res.success && res.status) {
         setHost(res.status.host || host);
-        const pushRes = await syncAllLocalToPostgres();
+        const snapshot = await databaseService.pullAllFromPostgres();
+        const pullSummary = snapshot ? hydrateFromPostgresSnapshot(snapshot) : null;
         await databaseService.checkStatus();
         setSuccessMsg(
-          `Connected to "${res.status.database}" on ${res.status.host}:${res.status.port}, saved configuration to .env, and ${pushRes.success ? `synced ${pushRes.syncedCount} local record(s)!` : 'enabled live auto-sync.'}`
+          `Connected to "${res.status.database}" on ${res.status.host}:${res.status.port}, saved configuration to .env${pullSummary ? `, and synced ${pullSummary.totalRows} row(s) from database!` : '.'}`
         );
       } else {
         setErrorMsg(res.error || 'Failed to connect with provided settings.');

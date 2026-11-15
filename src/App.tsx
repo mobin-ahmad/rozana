@@ -7,7 +7,7 @@ import {
   isUserSuperAdmin,
   getActiveStoreChain,
   getOrganizationAccessState,
-  syncAllLocalToPostgres
+  hydrateFromPostgresSnapshot
 } from './lib/storage';
 import { databaseService } from './lib/databaseService';
 import { User } from './types';
@@ -95,12 +95,15 @@ export function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const hasAutoSyncedPgRef = useRef<boolean>(false);
 
-  // Check PostgreSQL connection and auto-sync existing local data once connected
+  // Check PostgreSQL connection and hydrate authoritative DB state on first connection
   useEffect(() => {
     const unsubDb = databaseService.subscribe((status) => {
       if (status.connected && !hasAutoSyncedPgRef.current) {
         hasAutoSyncedPgRef.current = true;
-        void syncAllLocalToPostgres().then(() => {
+        void databaseService.pullAllFromPostgres().then((snapshot) => {
+          if (snapshot) {
+            hydrateFromPostgresSnapshot(snapshot);
+          }
           void databaseService.checkStatus();
         });
       }

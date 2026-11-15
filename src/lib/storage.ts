@@ -31,25 +31,6 @@ import {
 } from '../types';
 import { defaultCurrencies } from './currency';
 import { formatCurrency } from './cft';
-import {
-  initialUsers,
-  initialCategories,
-  initialSubCategories,
-  initialItemGroups,
-  initialBrands,
-  initialItemDefinitions,
-  initialSuppliers,
-  initialCustomers,
-  initialWoodStocks,
-  initialPurchases,
-  initialSales,
-  initialSaleItems,
-  initialPayments,
-  initialExpenses,
-  initialSettings,
-  initialActivityLogs,
-  initialImportLogs
-} from '../data/initialData';
 import { calcCft } from './cft';
 import { databaseService, SyncBatchItem } from './databaseService';
 
@@ -121,6 +102,34 @@ const STORAGE_KEYS = {
 const PURGE_FLAG_KEYS = {
   ORGS_PURGED: 'ROZANA_PURGED_ORGS',
   BRANCHES_PURGED: 'ROZANA_PURGED_BRANCHES',
+};
+
+export const CLEAN_DEFAULT_SETTINGS: SystemSettings = {
+  business_name: 'Rozana POS',
+  active_branch_id: '',
+  branches: [],
+  branch_name: '',
+  business_address: '',
+  address_line_2: '',
+  business_phone: '',
+  cell_phone: '',
+  email: '',
+  region: '',
+  city: '',
+  postal_code: '',
+  country: 'Pakistan',
+  tax_id: '',
+  currency_symbol: 'Rs.',
+  base_currency: 'PKR',
+  active_display_currency: 'PKR',
+  currencies: defaultCurrencies,
+  default_buy_rate: 0,
+  default_sell_rate: 0,
+  invoice_prefix: 'INV',
+  purchase_prefix: 'PUR',
+  invoice_footer: 'Thank you for shopping with us!',
+  default_tax_rate: 0,
+  duplicate_scan_behavior: 'increase_qty',
 };
 
 export type PurgeTargetKey =
@@ -248,67 +257,33 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   },
 ];
 
-export const INITIAL_STORE_CHAINS: StoreChain[] = [
-  {
-    id: 'chain-default',
-    name: 'Askari Departmental Store Chain',
-    code: 'ASKARI',
-    business_type: 'Departmental Store & Supply Chain',
-    industry: 'Retail & Wholesale Supply',
-    description: 'Premier wholesale supply and general retail departmental store network.',
-    registration_number: 'REG-ASK-2026',
-    tax_id: 'NTN-441029-1',
-    website: 'https://askari-stores.example.com',
-    country: 'Pakistan',
-    city: 'Lahore',
-    logo_url: '',
-    admin_email: 'admin@askari.com',
-    admin_name: 'Askari System Admin',
-    admin_username: 'admin',
-    admin_phone: '+92 300 1234567',
-    phone: '+92 300 1234567',
-    address: 'Main Boulevard, Gulberg, Lahore, Pakistan',
-    plan_id: 'plan-enterprise',
-    subscription_start_date: '2026-01-01',
-    subscription_expiry_date: '2028-12-31',
-    max_branches: 100,
-    max_users: 500,
-    max_pos_terminals: 150,
-    status: 'active',
-    created_at: '2026-01-01T00:00:00.000Z',
-    is_active: true,
-  },
-  {
-    id: 'chain-jks',
-    name: 'JKS Cash & Carry',
-    code: 'JKS',
-    business_type: 'Cash & Carry / Departmental Mart',
-    industry: 'Retail & Wholesale Cash & Carry',
-    description: 'Premier cash & carry and retail departmental wholesale network.',
-    registration_number: 'REG-JKS-2026',
-    tax_id: 'NTN-882190-4',
-    country: 'Pakistan',
-    city: 'Lahore',
-    logo_url: '',
-    admin_email: 'jks@jkscashandcarry.com',
-    admin_name: 'JKS Store Administrator',
-    admin_username: 'jks',
-    admin_phone: '+92 321 9876543',
-    phone: '+92 321 9876543',
-    address: 'Main Boulevard, Gulberg, Lahore, Pakistan',
-    plan_id: 'plan-growth',
-    subscription_start_date: '2026-01-15',
-    subscription_expiry_date: '2027-01-15',
-    max_branches: 15,
-    max_users: 75,
-    max_pos_terminals: 20,
-    status: 'active',
-    created_at: '2026-01-15T00:00:00.000Z',
-    is_active: true,
-  },
-];
+export const INITIAL_STORE_CHAINS: StoreChain[] = [];
 
-export const DEFAULT_STORE_CHAIN: StoreChain = INITIAL_STORE_CHAINS[0];
+export const DEFAULT_STORE_CHAIN: StoreChain = {
+  id: 'chain-default',
+  name: 'Global Platform Console',
+  code: 'GLOBAL',
+  business_type: 'Multi-Tenant Retail Platform',
+  industry: 'Retail & General POS',
+  description: '',
+  country: 'Pakistan',
+  city: '',
+  logo_url: '',
+  admin_email: 'mobin@rozana.pos',
+  admin_name: 'Mobin Global Super Admin',
+  admin_username: 'mobin',
+  phone: '',
+  address: '',
+  plan_id: 'plan-enterprise',
+  subscription_start_date: '2026-01-01',
+  subscription_expiry_date: '2030-12-31',
+  max_branches: 100,
+  max_users: 500,
+  max_pos_terminals: 150,
+  status: 'active',
+  created_at: '2026-01-01T00:00:00.000Z',
+  is_active: true,
+};
 
 function normalizeSubscriptionPlanList(plans: SubscriptionPlan[]): { plans: SubscriptionPlan[]; changed: boolean } {
   let changed = false;
@@ -524,33 +499,24 @@ export function getOrganizationAccessState(chain?: StoreChain | null): {
 
 export function getStoreChains(): StoreChain[] {
   try {
-    const orgsPurged = localStorage.getItem(PURGE_FLAG_KEYS.ORGS_PURGED) === 'true';
     const raw = localStorage.getItem(STORAGE_KEYS.STORE_CHAINS);
     if (!raw) {
-      if (orgsPurged) return [];
-      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(INITIAL_STORE_CHAINS));
-      return INITIAL_STORE_CHAINS;
+      return [];
     }
     const parsed: StoreChain[] = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
-      if (orgsPurged) return [];
-      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(INITIAL_STORE_CHAINS));
-      return INITIAL_STORE_CHAINS;
+      return [];
     }
     let dirty = false;
     const normalized: StoreChain[] = parsed.map((c): StoreChain => {
-      const defMatch = INITIAL_STORE_CHAINS.find((d) => d.id === c.id);
       const nextStatus: OrganizationStatus = c.status || (c.is_active === false ? 'suspended' : 'active');
-      const nextPlanId = c.plan_id || defMatch?.plan_id || (c.id === 'chain-default' ? 'plan-enterprise' : 'plan-free');
+      const nextPlanId = c.plan_id || 'plan-free';
       const planObj = getPlanById(nextPlanId);
       if (!c.plan_id || !c.status || !c.max_branches || !c.max_users) {
         dirty = true;
       }
       return {
-        ...defMatch,
         ...c,
-        name: c.id === 'chain-jks' ? 'JKS Cash & Carry' : c.name,
-        admin_email: c.id === 'chain-jks' ? 'jks@jkscashandcarry.com' : c.admin_email,
         plan_id: nextPlanId,
         status: nextStatus,
         is_active: nextStatus === 'active',
@@ -561,19 +527,12 @@ export function getStoreChains(): StoreChain[] {
         subscription_expiry_date: c.subscription_expiry_date || '2027-12-31',
       };
     });
-    if (!orgsPurged) {
-      const jksIdx = normalized.findIndex((c) => c.id === 'chain-jks' || c.code === 'JKS');
-      if (jksIdx === -1) {
-        normalized.push(INITIAL_STORE_CHAINS[1]);
-        dirty = true;
-      }
-    }
     if (dirty) {
       localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(normalized));
     }
     return normalized;
   } catch {
-    return INITIAL_STORE_CHAINS;
+    return [];
   }
 }
 
@@ -589,18 +548,34 @@ export function getActiveStoreChain(): StoreChain {
   const chains = getStoreChains();
   if (chains.length === 0) {
     return {
-      ...DEFAULT_STORE_CHAIN,
       id: 'chain-default',
-      name: 'No Store Chain Registered',
+      name: 'Global Platform Console',
       code: 'GLOBAL',
-      address: 'Global Platform Console',
+      business_type: 'Platform Administration',
+      industry: 'Multi-Tenant POS Platform',
+      description: 'Global platform administration console',
+      country: 'Pakistan',
+      city: '',
+      logo_url: '',
+      admin_email: 'mobin@rozana.pos',
+      admin_name: 'Mobin',
+      admin_username: 'mobin',
+      admin_phone: '',
+      phone: '',
+      address: 'Platform Administration',
       plan_id: 'plan-enterprise',
+      subscription_start_date: '2026-01-01',
+      subscription_expiry_date: '2099-12-31',
+      max_branches: 100,
+      max_users: 500,
+      max_pos_terminals: 150,
       status: 'active',
+      created_at: '2026-01-01T00:00:00.000Z',
       is_active: true,
     };
   }
   const activeId = getActiveChainId();
-  return chains.find((c) => c.id === activeId) || chains[0] || DEFAULT_STORE_CHAIN;
+  return chains.find((c) => c.id === activeId) || chains[0];
 }
 
 export function setActiveStoreChain(chainId: string, allowPreAuth: boolean = false): boolean {
@@ -773,16 +748,14 @@ export function assignOrganizationPlan(
 }
 
 export function deleteStoreChain(chainId: string): { success: boolean; message: string } {
-  if (chainId === 'chain-default' || chainId === 'chain-jks') {
-    return { success: false, message: 'Core system organizations cannot be removed' };
-  }
   const chains = getStoreChains();
+  const remaining = chains.filter((c) => c.id !== chainId);
   const activeId = getActiveChainId();
+  localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(remaining));
   if (activeId === chainId) {
-    setActiveStoreChain('chain-default');
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, remaining[0]?.id || 'chain-default');
   }
-  const filtered = chains.filter((c) => c.id !== chainId);
-  localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(filtered));
+  pgDelete(TABLE_NAMES.STORE_CHAINS, chainId, chainId);
   notifyStorageChange();
   return { success: true, message: 'Organization deleted successfully' };
 }
@@ -1119,359 +1092,102 @@ function setStoredItem<T>(key: string, value: T): void {
   }
 }
 
-// Initialization function
+// Initialization function (No automatic seed/demo data - preserves only Global Super Admin)
 export function initializeStorageIfNeeded(): void {
   const activeChainId = getActiveChainId();
   if (activeChainId === 'chain-default') {
-    const currentUsers = getStoredItem<User[]>(STORAGE_KEYS.USERS, []);
-    if (!currentUsers || currentUsers.length === 0) {
-      setStoredItem(STORAGE_KEYS.USERS, initialUsers);
-      setStoredItem(STORAGE_KEYS.CATEGORIES, initialCategories);
-      setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, initialSubCategories);
-      setStoredItem(STORAGE_KEYS.ITEM_GROUPS, initialItemGroups);
-      setStoredItem(STORAGE_KEYS.BRANDS, initialBrands);
-      setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, initialItemDefinitions);
-      setStoredItem(STORAGE_KEYS.SUPPLIERS, initialSuppliers);
-      setStoredItem(STORAGE_KEYS.CUSTOMERS, initialCustomers);
-      setStoredItem(STORAGE_KEYS.WOOD_STOCKS, initialWoodStocks);
-      setStoredItem(STORAGE_KEYS.PURCHASES, initialPurchases);
-      setStoredItem(STORAGE_KEYS.SALES, initialSales);
-      setStoredItem(STORAGE_KEYS.SALE_ITEMS, initialSaleItems);
-      setStoredItem(STORAGE_KEYS.PAYMENTS, initialPayments);
-      setStoredItem(STORAGE_KEYS.EXPENSES, initialExpenses);
-      setStoredItem(STORAGE_KEYS.SETTINGS, initialSettings);
-      setStoredItem(STORAGE_KEYS.LOGS, initialActivityLogs);
-      setStoredItem(STORAGE_KEYS.IMPORT_LOGS, initialImportLogs);
-      setStoredItem(STORAGE_KEYS.CURRENT_USER, initialUsers[0]);
+    const rawUsers = localStorage.getItem(getTenantStorageKey(STORAGE_KEYS.USERS, 'chain-default'));
+    if (!rawUsers) {
+      localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.USERS, 'chain-default'), JSON.stringify([MOBIN_SUPER_ADMIN]));
     } else {
-      // Ensure 'mobin' super admin user is guaranteed to exist in existing session storage
-      const hasMobin = currentUsers.some((u) => u.username.toLowerCase() === 'mobin');
-      if (!hasMobin) {
-        const mobinUser = initialUsers.find((u) => u.username === 'mobin');
-        if (mobinUser) {
-          const updated = [mobinUser, ...currentUsers];
-          setStoredItem(STORAGE_KEYS.USERS, updated);
+      try {
+        const currentUsers = JSON.parse(rawUsers);
+        if (Array.isArray(currentUsers)) {
+          const hasMobin = currentUsers.some((u: User) => (u?.username || '').toLowerCase() === 'mobin');
+          if (!hasMobin) {
+            localStorage.setItem(
+              getTenantStorageKey(STORAGE_KEYS.USERS, 'chain-default'),
+              JSON.stringify([MOBIN_SUPER_ADMIN, ...currentUsers])
+            );
+          }
         }
+      } catch {
+        localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.USERS, 'chain-default'), JSON.stringify([MOBIN_SUPER_ADMIN]));
       }
     }
+
+    const rawCurrent = localStorage.getItem(getTenantStorageKey(STORAGE_KEYS.CURRENT_USER, 'chain-default'));
+    if (!rawCurrent) {
+      localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.CURRENT_USER, 'chain-default'), JSON.stringify(MOBIN_SUPER_ADMIN));
+    }
+
+    const rawSettings = localStorage.getItem(getTenantStorageKey(STORAGE_KEYS.SETTINGS, 'chain-default'));
+    if (!rawSettings) {
+      localStorage.setItem(getTenantStorageKey(STORAGE_KEYS.SETTINGS, 'chain-default'), JSON.stringify(CLEAN_DEFAULT_SETTINGS));
+    }
   } else {
-    // Non-default store chain tenant
     const chain = getActiveStoreChain();
     const tenantKey = (key: string) => `${key}_${activeChainId}`;
-    const isJks = activeChainId === 'chain-jks';
-
-    const branchList = isJks
-      ? [
-          {
-            id: 'br-jks-1',
-            name: `${chain.name} - Main Branch`,
-            code: 'JKS-01',
-            address: 'Main Boulevard, Gulberg, Lahore',
-            phone: '+92 321 9876543',
-            email: 'main@jkscashandcarry.com',
-            is_head_office: true,
-          },
-          {
-            id: 'br-jks-2',
-            name: `${chain.name} - Ravi Road Branch`,
-            code: 'JKS-02',
-            address: 'Timber Market, Ravi Road, Lahore',
-            phone: '+92 322 1122334',
-            email: 'raviroad@jkscashandcarry.com',
-          },
-          {
-            id: 'br-jks-3',
-            name: `${chain.name} - Express Mart`,
-            code: 'JKS-03',
-            address: 'DHA Phase 5, Lahore',
-            phone: '+92 300 9988776',
-            email: 'express@jkscashandcarry.com',
-          },
-        ]
-      : [
-          {
-            id: 'br-head-office',
-            name: `${chain.name} - Head Office`,
-            code: `${chain.code}-01`,
-            address: chain.address || '',
-            phone: chain.phone || '',
-            email: chain.admin_email,
-            is_head_office: true,
-          },
-        ];
-
-    const adminUser: User = {
-      id: 1001,
-      username: isJks ? 'jks' : (chain.admin_email?.split('@')[0] || 'admin'),
-      password: '1234',
-      pos_pin: '1234',
-      full_name: isJks ? 'JKS Store Admin' : (chain.admin_name || 'Chain Admin'),
-      email: isJks ? 'jks@jkscashandcarry.com' : (chain.admin_email || 'admin@store.com'),
-      phone: chain.phone || '+92 321 9876543',
-      role: 'admin',
-      designation: isJks ? 'JKS Store Administrator' : 'Business Administrator',
-      employee_code: isJks ? 'JKS-001' : 'ADM-001',
-      is_active: true,
-      is_super_admin: false,
-      created_at: new Date().toISOString(),
-      assigned_branch_id: 'all',
-      permissions: {
-        pos_billing: true,
-        sales_view: true,
-        sales_discount: true,
-        sales_refund: true,
-        inventory_view: true,
-        inventory_manage: true,
-        purchases_manage: true,
-        customers_manage: true,
-        suppliers_manage: true,
-        expenses_manage: true,
-        reports_view: true,
-        settings_manage: true,
-        users_manage: true,
-        audit_logs_view: true,
-      },
-    };
-
-    const jksTeamUsers: User[] = isJks
-      ? [
-          {
-            id: 1002,
-            username: 'jks_manager',
-            password: '5678',
-            pos_pin: '5678',
-            full_name: 'Tariq Mehmood',
-            email: 'manager@jkscashandcarry.com',
-            phone: '+92 321 1234567',
-            role: 'manager',
-            designation: 'Main Branch Store Manager',
-            employee_code: 'JKS-002',
-            is_active: true,
-            is_super_admin: false,
-            created_at: new Date().toISOString(),
-            assigned_branch_id: 'br-jks-1',
-            permissions: {
-              pos_billing: true,
-              sales_view: true,
-              sales_discount: true,
-              sales_refund: true,
-              inventory_view: true,
-              inventory_manage: true,
-              purchases_manage: true,
-              customers_manage: true,
-              suppliers_manage: true,
-              expenses_manage: true,
-              reports_view: true,
-              settings_manage: false,
-              users_manage: false,
-              audit_logs_view: true,
-            },
-          },
-          {
-            id: 1003,
-            username: 'jks_cashier',
-            password: '1122',
-            pos_pin: '1122',
-            full_name: 'Bilal Ahmed',
-            email: 'cashier@jkscashandcarry.com',
-            phone: '+92 321 7654321',
-            role: 'cashier',
-            designation: 'POS Terminal Cashier',
-            employee_code: 'JKS-003',
-            is_active: true,
-            is_super_admin: false,
-            created_at: new Date().toISOString(),
-            assigned_branch_id: 'br-jks-1',
-            permissions: {
-              pos_billing: true,
-              sales_view: true,
-              sales_discount: true,
-              sales_refund: false,
-              inventory_view: true,
-              inventory_manage: false,
-              purchases_manage: false,
-              customers_manage: true,
-              suppliers_manage: false,
-              expenses_manage: false,
-              reports_view: false,
-              settings_manage: false,
-              users_manage: false,
-              audit_logs_view: false,
-            },
-          },
-        ]
-      : [];
 
     const rawUsers = localStorage.getItem(tenantKey(STORAGE_KEYS.USERS));
     if (!rawUsers) {
-      const cleanTenantSettings: SystemSettings = {
-        business_name: chain.name,
-        logo_url: chain.logo_url || '',
-        business_address: chain.address || '',
-        business_phone: chain.phone || '',
-        email: chain.admin_email,
-        active_branch_id: branchList[0]?.id || 'br-1',
-        branches: branchList,
-        currency_symbol: 'Rs.',
-        default_buy_rate: 0,
-        default_sell_rate: 0,
-        invoice_prefix: `${chain.code}-INV`,
-        purchase_prefix: `${chain.code}-PUR`,
-        invoice_footer: `Thank you for shopping at ${chain.name}!`,
-        default_tax_rate: 0,
-        base_currency: 'PKR',
-        active_display_currency: 'PKR',
-        currencies: defaultCurrencies,
-      };
-
-      const initialTenantUsers = [adminUser, ...jksTeamUsers];
-      localStorage.setItem(tenantKey(STORAGE_KEYS.USERS), JSON.stringify(initialTenantUsers));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.CURRENT_USER), JSON.stringify(adminUser));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.SETTINGS), JSON.stringify(cleanTenantSettings));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.CATEGORIES), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.SUB_CATEGORIES), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.ITEM_GROUPS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.BRANDS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.ITEM_DEFINITIONS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.SUPPLIERS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.CUSTOMERS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.WOOD_STOCKS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.PURCHASES), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.SALES), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.SALE_ITEMS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.PAYMENTS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.EXPENSES), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.IMPORT_LOGS), JSON.stringify([]));
-      localStorage.setItem(tenantKey(STORAGE_KEYS.LOGS), JSON.stringify([]));
+      localStorage.setItem(tenantKey(STORAGE_KEYS.USERS), JSON.stringify([]));
     } else {
-      // Tenant already has data: sanitize users to purge MOBIN and super admin, and ensure jks exists
       try {
         const existingUsers = JSON.parse(rawUsers);
         if (Array.isArray(existingUsers)) {
-          let sanitized = existingUsers.filter(
+          const sanitized = existingUsers.filter(
             (u) => u && (u.username || '').toLowerCase() !== 'mobin' && !u.is_super_admin
           );
-          if (isJks) {
-            const hasJks = sanitized.some((u) => (u.username || '').toLowerCase() === 'jks');
-            if (!hasJks) {
-              sanitized = [adminUser, ...sanitized];
-            }
-          }
-          if (sanitized.length !== existingUsers.length || isJks) {
+          if (sanitized.length !== existingUsers.length) {
             localStorage.setItem(tenantKey(STORAGE_KEYS.USERS), JSON.stringify(sanitized));
           }
         }
       } catch {
         // ignore
       }
+    }
 
-      // Also ensure JKS settings has the branches
-      if (isJks) {
-        try {
-          const rawSettings = localStorage.getItem(tenantKey(STORAGE_KEYS.SETTINGS));
-          if (rawSettings) {
-            const parsedSettings = JSON.parse(rawSettings);
-            if (!parsedSettings.branches || parsedSettings.branches.length <= 1) {
-              parsedSettings.branches = branchList;
-              parsedSettings.business_name = chain.name;
-              localStorage.setItem(tenantKey(STORAGE_KEYS.SETTINGS), JSON.stringify(parsedSettings));
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
+    const rawSettings = localStorage.getItem(tenantKey(STORAGE_KEYS.SETTINGS));
+    if (!rawSettings) {
+      const cleanTenantSettings: SystemSettings = {
+        ...CLEAN_DEFAULT_SETTINGS,
+        business_name: chain.name || 'Rozana POS',
+        logo_url: chain.logo_url || '',
+        business_address: chain.address || '',
+        business_phone: chain.phone || '',
+        email: chain.admin_email || '',
+        city: chain.city || '',
+        country: chain.country || 'Pakistan',
+        invoice_prefix: chain.code && chain.code !== 'GLOBAL' ? `${chain.code}-INV` : 'INV',
+        purchase_prefix: chain.code && chain.code !== 'GLOBAL' ? `${chain.code}-PUR` : 'PUR',
+        invoice_footer: chain.name ? `Thank you for shopping at ${chain.name}!` : 'Thank you for shopping with us!',
+      };
+      localStorage.setItem(tenantKey(STORAGE_KEYS.SETTINGS), JSON.stringify(cleanTenantSettings));
     }
   }
 }
 
 export function resetToDemoData(): void {
-  localStorage.removeItem(PURGE_FLAG_KEYS.ORGS_PURGED);
-  localStorage.removeItem(PURGE_FLAG_KEYS.BRANCHES_PURGED);
   const activeChainId = getActiveChainId();
-  if (activeChainId === 'chain-default') {
-    setStoredItem(STORAGE_KEYS.USERS, initialUsers);
-    setStoredItem(STORAGE_KEYS.CATEGORIES, initialCategories);
-    setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, initialSubCategories);
-    setStoredItem(STORAGE_KEYS.ITEM_GROUPS, initialItemGroups);
-    setStoredItem(STORAGE_KEYS.BRANDS, initialBrands);
-    setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, initialItemDefinitions);
-    setStoredItem(STORAGE_KEYS.SUPPLIERS, initialSuppliers);
-    setStoredItem(STORAGE_KEYS.CUSTOMERS, initialCustomers);
-    setStoredItem(STORAGE_KEYS.WOOD_STOCKS, initialWoodStocks);
-    setStoredItem(STORAGE_KEYS.PURCHASES, initialPurchases);
-    setStoredItem(STORAGE_KEYS.SALES, initialSales);
-    setStoredItem(STORAGE_KEYS.SALE_ITEMS, initialSaleItems);
-    setStoredItem(STORAGE_KEYS.PAYMENTS, initialPayments);
-    setStoredItem(STORAGE_KEYS.EXPENSES, initialExpenses);
-    setStoredItem(STORAGE_KEYS.SETTINGS, initialSettings);
-    setStoredItem(STORAGE_KEYS.LOGS, initialActivityLogs);
-    setStoredItem(STORAGE_KEYS.IMPORT_LOGS, initialImportLogs);
-    setStoredItem(STORAGE_KEYS.CURRENT_USER, initialUsers[0]);
-  } else {
-    // Reset non-default chain to clean slate
-    const chain = getActiveStoreChain();
-    const adminUser: User = {
-      id: 1001,
-      username: chain.admin_email?.split('@')[0] || 'admin',
-      password: 'Admin@123',
-      full_name: chain.admin_name || 'Chain Admin',
-      email: chain.admin_email || 'admin@store.com',
-      phone: chain.phone || '',
-      role: 'admin',
-      is_active: true,
-      created_at: new Date().toISOString(),
-      assigned_branch_id: 'br-head-office',
-    };
-    const cleanTenantSettings: SystemSettings = {
-      business_name: chain.name,
-      logo_url: chain.logo_url || '',
-      business_address: chain.address || '',
-      business_phone: chain.phone || '',
-      email: chain.admin_email,
-      active_branch_id: 'br-head-office',
-      branches: [
-        {
-          id: 'br-head-office',
-          name: `${chain.name} - Head Office`,
-          code: `${chain.code}-01`,
-          address: chain.address || '',
-          phone: chain.phone || '',
-          email: chain.admin_email,
-          is_head_office: true,
-        },
-      ],
-      currency_symbol: 'Rs.',
-      default_buy_rate: 0,
-      default_sell_rate: 0,
-      invoice_prefix: 'INV',
-      purchase_prefix: 'PUR',
-      invoice_footer: 'Thank you for shopping with us!',
-      default_tax_rate: 0,
-      base_currency: 'PKR',
-      active_display_currency: 'PKR',
-      currencies: defaultCurrencies,
-    };
-
-    setStoredItem(STORAGE_KEYS.USERS, [adminUser]);
-    setStoredItem(STORAGE_KEYS.CURRENT_USER, adminUser);
-    setStoredItem(STORAGE_KEYS.SETTINGS, cleanTenantSettings);
-    setStoredItem(STORAGE_KEYS.CATEGORIES, []);
-    setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, []);
-    setStoredItem(STORAGE_KEYS.ITEM_GROUPS, []);
-    setStoredItem(STORAGE_KEYS.BRANDS, []);
-    setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, []);
-    setStoredItem(STORAGE_KEYS.SUPPLIERS, []);
-    setStoredItem(STORAGE_KEYS.CUSTOMERS, []);
-    setStoredItem(STORAGE_KEYS.WOOD_STOCKS, []);
-    setStoredItem(STORAGE_KEYS.PURCHASES, []);
-    setStoredItem(STORAGE_KEYS.SALES, []);
-    setStoredItem(STORAGE_KEYS.SALE_ITEMS, []);
-    setStoredItem(STORAGE_KEYS.PAYMENTS, []);
-    setStoredItem(STORAGE_KEYS.EXPENSES, []);
-    setStoredItem(STORAGE_KEYS.LOGS, []);
-    setStoredItem(STORAGE_KEYS.IMPORT_LOGS, []);
-  }
+  setStoredItem(STORAGE_KEYS.USERS, activeChainId === 'chain-default' ? [MOBIN_SUPER_ADMIN] : []);
+  setStoredItem(STORAGE_KEYS.CURRENT_USER, MOBIN_SUPER_ADMIN);
+  setStoredItem(STORAGE_KEYS.SETTINGS, { ...CLEAN_DEFAULT_SETTINGS });
+  setStoredItem(STORAGE_KEYS.CATEGORIES, []);
+  setStoredItem(STORAGE_KEYS.SUB_CATEGORIES, []);
+  setStoredItem(STORAGE_KEYS.ITEM_GROUPS, []);
+  setStoredItem(STORAGE_KEYS.BRANDS, []);
+  setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, []);
+  setStoredItem(STORAGE_KEYS.SUPPLIERS, []);
+  setStoredItem(STORAGE_KEYS.CUSTOMERS, []);
+  setStoredItem(STORAGE_KEYS.WOOD_STOCKS, []);
+  setStoredItem(STORAGE_KEYS.PURCHASES, []);
+  setStoredItem(STORAGE_KEYS.SALES, []);
+  setStoredItem(STORAGE_KEYS.SALE_ITEMS, []);
+  setStoredItem(STORAGE_KEYS.PAYMENTS, []);
+  setStoredItem(STORAGE_KEYS.EXPENSES, []);
+  setStoredItem(STORAGE_KEYS.LOGS, []);
+  setStoredItem(STORAGE_KEYS.IMPORT_LOGS, []);
   notifyStorageChange();
 }
 
@@ -1515,7 +1231,7 @@ export function normalizeUserRecord(user: User): User {
 
 export function getCurrentUser(): User {
   initializeStorageIfNeeded();
-  return normalizeUserRecord(getStoredItem<User>(STORAGE_KEYS.CURRENT_USER, initialUsers[0]));
+  return normalizeUserRecord(getStoredItem<User>(STORAGE_KEYS.CURRENT_USER, MOBIN_SUPER_ADMIN));
 }
 
 export function setCurrentUser(user: User): void {
@@ -1529,9 +1245,6 @@ export function loginUser(
   chainId?: string
 ): { success: boolean; message: string; user?: User } {
   const trimmed = identifier.trim().toLowerCase();
-  if ((trimmed === 'jks' || trimmed === 'jks@jkscashandcarry.com') && (!chainId || chainId === 'chain-default')) {
-    chainId = 'chain-jks';
-  }
   if (chainId) {
     setActiveStoreChain(chainId, true);
   }
@@ -1548,32 +1261,6 @@ export function loginUser(
   // If logging in with Global Super Admin (mobin)
   if (!user && trimmed === 'mobin') {
     user = MOBIN_SUPER_ADMIN;
-  }
-
-  // If logging in as jks in chain-jks fallback
-  if (!user && (trimmed === 'jks' || trimmed === 'jks@jkscashandcarry.com') && getActiveChainId() === 'chain-jks') {
-    const fallbackJksAdmin: User = {
-      id: 1001,
-      organization_id: 'chain-jks',
-      username: 'jks',
-      password: '1234',
-      pos_pin: '1234',
-      full_name: 'JKS Store Admin',
-      email: 'jks@jkscashandcarry.com',
-      phone: '+92 321 9876543',
-      role: 'admin',
-      designation: 'JKS Store Administrator',
-      employee_code: 'JKS-001',
-      is_active: true,
-      account_status: 'active',
-      is_super_admin: false,
-      created_at: new Date().toISOString(),
-      assigned_branch_id: 'all',
-      assigned_branches: ['all'],
-      permissions: defaultPermissionsByRole('admin'),
-    };
-    saveUser(fallbackJksAdmin);
-    user = fallbackJksAdmin;
   }
 
   if (!user) {
@@ -1593,10 +1280,8 @@ export function loginUser(
   }
 
   const pwdInput = (password || '').trim();
-  const isDefaultDemoUser = ['mobin', 'admin', 'manager', 'cashier1', 'warehouse1', 'jks', 'jks_manager', 'jks_cashier'].includes(
-    (user.username || '').toLowerCase()
-  );
-  const validPwd = isDefaultDemoUser
+  const isDefaultGlobalUser = (user.username || '').toLowerCase() === 'mobin' || isUserSuperAdmin(user);
+  const validPwd = isDefaultGlobalUser
     ? !user.password ||
       pwdInput === user.password ||
       pwdInput === user.pos_pin ||
@@ -1644,9 +1329,9 @@ export function logActivity(
   let currentUser: User | null = null;
   try {
     const rawUser = localStorage.getItem(getTenantStorageKey(STORAGE_KEYS.CURRENT_USER));
-    currentUser = rawUser ? JSON.parse(rawUser) : initialUsers[0];
+    currentUser = rawUser ? JSON.parse(rawUser) : MOBIN_SUPER_ADMIN;
   } catch {
-    currentUser = initialUsers[0];
+    currentUser = MOBIN_SUPER_ADMIN;
   }
 
   const activeChain = getActiveStoreChain();
@@ -1663,8 +1348,7 @@ export function logActivity(
     // ignore
   }
 
-  const activeChainId = getActiveChainId();
-  const logs = getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, activeChainId === 'chain-default' ? initialActivityLogs : []);
+  const logs = getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, []);
   const newLog: ActivityLog = {
     id: logs.length ? Math.max(...logs.map((l) => l.id)) + 1 : 1,
     organization_id: activeChain.id,
@@ -1684,8 +1368,7 @@ export function logActivity(
 }
 
 export function getActivityLogs(): ActivityLog[] {
-  const activeChainId = getActiveChainId();
-  return getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, activeChainId === 'chain-default' ? initialActivityLogs : []);
+  return getStoredItem<ActivityLog[]>(STORAGE_KEYS.LOGS, []);
 }
 
 export function defaultPermissionsByRole(role: UserRole): UserPermissions {
@@ -2003,7 +1686,7 @@ export function getOrganizationUsers(chainId: string): User[] {
   const key = getTenantStorageKey(STORAGE_KEYS.USERS, chainId);
   try {
     const raw = localStorage.getItem(key);
-    let list: User[] = raw ? JSON.parse(raw) : chainId === 'chain-default' ? initialUsers : [];
+    let list: User[] = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(list)) list = [];
     // Exclude Global Super Admin from organization employee seat counts
     return list.filter((u) => u && !isUserSuperAdmin(u)).map(normalizeUserRecord);
@@ -2013,55 +1696,19 @@ export function getOrganizationUsers(chainId: string): User[] {
 }
 
 export function getOrganizationBranches(chainId: string): StoreBranch[] {
-  const branchesPurged = localStorage.getItem(PURGE_FLAG_KEYS.BRANCHES_PURGED) === 'true';
   const key = getTenantStorageKey(STORAGE_KEYS.SETTINGS, chainId);
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
       const s: SystemSettings = JSON.parse(raw);
       if (Array.isArray(s.branches)) {
-        if (s.branches.length > 0 || branchesPurged) {
-          return s.branches;
-        }
+        return s.branches;
       }
     }
   } catch {
     // ignore
   }
-  if (branchesPurged) {
-    return [];
-  }
-  if (chainId === 'chain-default') {
-    return (initialSettings.branches || []).map((b) => ({
-      ...b,
-      organization_id: 'chain-default',
-      status: b.status || 'active',
-      is_active: b.is_active !== false,
-    }));
-  }
-  if (chainId === 'chain-jks') {
-    return [
-      { id: 'br-jks-1', organization_id: 'chain-jks', name: 'JKS Cash & Carry - Main Branch', code: 'JKS-01', branch_type: 'head_office', address: 'Main Boulevard, Gulberg, Lahore', city: 'Lahore', country: 'Pakistan', status: 'active', is_head_office: true, is_active: true },
-      { id: 'br-jks-2', organization_id: 'chain-jks', name: 'JKS Cash & Carry - Ravi Road Branch', code: 'JKS-02', branch_type: 'retail_outlet', address: 'Main Market, Ravi Road, Lahore', city: 'Lahore', country: 'Pakistan', status: 'active', is_active: true },
-      { id: 'br-jks-3', organization_id: 'chain-jks', name: 'JKS Cash & Carry - Express Mart', code: 'JKS-03', branch_type: 'express_mart', address: 'DHA Phase 5, Lahore', city: 'Lahore', country: 'Pakistan', status: 'active', is_active: true },
-    ];
-  }
-  const chain = getStoreChains().find((c) => c.id === chainId);
-  return [
-    {
-      id: 'br-head-office',
-      organization_id: chainId,
-      name: `${chain?.name || 'Store'} - Head Office`,
-      code: `${chain?.code || 'ORG'}-01`,
-      branch_type: 'head_office',
-      address: chain?.address || '',
-      city: chain?.city || '',
-      country: chain?.country || 'Pakistan',
-      status: 'active',
-      is_head_office: true,
-      is_active: true,
-    },
-  ];
+  return [];
 }
 
 export function getOrganizationSales(chainId: string): Sale[] {
@@ -2072,7 +1719,7 @@ export function getOrganizationSales(chainId: string): Sale[] {
       const list = JSON.parse(raw);
       return Array.isArray(list) ? list : [];
     }
-    return chainId === 'chain-default' ? initialSales : [];
+    return [];
   } catch {
     return [];
   }
@@ -2120,7 +1767,7 @@ export function getOrganizationUsageStats(chainId: string): {
 // Users API
 export function getUsers(): User[] {
   const activeChainId = getActiveChainId();
-  const users = getStoredItem<User[]>(STORAGE_KEYS.USERS, activeChainId === 'chain-default' ? initialUsers : []);
+  const users = getStoredItem<User[]>(STORAGE_KEYS.USERS, activeChainId === 'chain-default' ? [MOBIN_SUPER_ADMIN] : []);
   const safeUsers = Array.isArray(users) ? users : [];
 
   if (activeChainId === 'chain-default') {
@@ -2262,7 +1909,7 @@ export function toggleUserStatus(id: number): { success: boolean; message: strin
 
 // Categories & Cars (Sub-Categories)
 export function getCategories(): Category[] {
-  return getStoredItem<Category[]>(STORAGE_KEYS.CATEGORIES, initialCategories);
+  return getStoredItem<Category[]>(STORAGE_KEYS.CATEGORIES, []);
 }
 
 export function saveCategory(cat: Partial<Category> & { name: string }): { success: boolean; message: string } {
@@ -2319,7 +1966,7 @@ export function deleteSubCategory(id: number): { success: boolean; message: stri
 
 // Item Groups
 export function getItemGroups(): ItemGroup[] {
-  return getStoredItem<ItemGroup[]>(STORAGE_KEYS.ITEM_GROUPS, initialItemGroups);
+  return getStoredItem<ItemGroup[]>(STORAGE_KEYS.ITEM_GROUPS, []);
 }
 
 export function saveItemGroup(group: Partial<ItemGroup> & { group_id: string }): { success: boolean; message: string } {
@@ -2506,7 +2153,7 @@ export function bulkImportItemGroups(rows: any[]): { success: boolean; message: 
 
 // Brands
 export function getBrands(): Brand[] {
-  return getStoredItem<Brand[]>(STORAGE_KEYS.BRANDS, initialBrands);
+  return getStoredItem<Brand[]>(STORAGE_KEYS.BRANDS, []);
 }
 
 export function saveBrand(brand: Partial<Brand> & { name: string }): { success: boolean; message: string } {
@@ -2603,7 +2250,7 @@ export function bulkImportBrands(rows: any[]): { success: boolean; message: stri
 
 // Item Definitions
 export function getItemDefinitions(): ItemDefinition[] {
-  return getStoredItem<ItemDefinition[]>(STORAGE_KEYS.ITEM_DEFINITIONS, initialItemDefinitions);
+  return getStoredItem<ItemDefinition[]>(STORAGE_KEYS.ITEM_DEFINITIONS, []);
 }
 
 export function saveItemDefinition(item: Partial<ItemDefinition> & { item_code: string; item_name: string }): { success: boolean; message: string } {
@@ -2761,7 +2408,7 @@ export function bulkImportItemDefinitions(rows: any[]): { success: boolean; mess
 
 // Wood Stocks
 export function getWoodStocks(): WoodStock[] {
-  return getStoredItem<WoodStock[]>(STORAGE_KEYS.WOOD_STOCKS, initialWoodStocks);
+  return getStoredItem<WoodStock[]>(STORAGE_KEYS.WOOD_STOCKS, []);
 }
 
 export function saveWoodStock(stockData: Partial<WoodStock> & { serial: string; sub_category_id: number; width: number; length: number }): { success: boolean; message: string; stock?: WoodStock } {
@@ -2927,7 +2574,7 @@ export function bulkImportWoodStocks(
     logActivity('BULK_IMPORT', 'Wood_Stocks', '', `Bulk imported ${successCount} wood items`);
 
     // Record import log
-    const importLogs = getStoredItem<ImportLog[]>(STORAGE_KEYS.IMPORT_LOGS, initialImportLogs);
+    const importLogs = getStoredItem<ImportLog[]>(STORAGE_KEYS.IMPORT_LOGS, []);
     const newImportLog: ImportLog = {
       id: importLogs.length ? Math.max(...importLogs.map((l) => l.id)) + 1 : 1,
       file_name: 'bulk_import.csv',
@@ -2953,7 +2600,7 @@ export function bulkImportWoodStocks(
 
 // Suppliers
 export function getSuppliers(): Supplier[] {
-  return getStoredItem<Supplier[]>(STORAGE_KEYS.SUPPLIERS, initialSuppliers);
+  return getStoredItem<Supplier[]>(STORAGE_KEYS.SUPPLIERS, []);
 }
 
 export function saveSupplier(supplier: Partial<Supplier> & { name: string }): { success: boolean; message: string; supplier?: Supplier } {
@@ -2987,7 +2634,7 @@ export function saveSupplier(supplier: Partial<Supplier> & { name: string }): { 
 
 // Customers
 export function getCustomers(): Customer[] {
-  return getStoredItem<Customer[]>(STORAGE_KEYS.CUSTOMERS, initialCustomers);
+  return getStoredItem<Customer[]>(STORAGE_KEYS.CUSTOMERS, []);
 }
 
 export function saveCustomer(customer: Partial<Customer> & { name: string }): { success: boolean; message: string; customer?: Customer } {
@@ -3030,7 +2677,7 @@ export function saveCustomer(customer: Partial<Customer> & { name: string }): { 
 
 // Purchases
 export function getPurchases(): Purchase[] {
-  const purchases = getStoredItem<Purchase[]>(STORAGE_KEYS.PURCHASES, initialPurchases);
+  const purchases = getStoredItem<Purchase[]>(STORAGE_KEYS.PURCHASES, []);
   let changed = false;
   const cleaned = purchases.map((p) => {
     if (p.paid_amount > p.total_amount) {
@@ -3156,7 +2803,7 @@ export function savePurchase(data: {
 
 // Sales & POS Register
 export function getSales(): Sale[] {
-  const sales = getStoredItem<Sale[]>(STORAGE_KEYS.SALES, initialSales);
+  const sales = getStoredItem<Sale[]>(STORAGE_KEYS.SALES, []);
   let changed = false;
   const cleaned = sales.map((s) => {
     if (s.paid_amount > s.grand_total) {
@@ -3179,7 +2826,7 @@ export function getSales(): Sale[] {
 }
 
 export function getSaleItems(): SaleItem[] {
-  return getStoredItem<SaleItem[]>(STORAGE_KEYS.SALE_ITEMS, initialSaleItems);
+  return getStoredItem<SaleItem[]>(STORAGE_KEYS.SALE_ITEMS, []);
 }
 
 export function completeSale(data: {
@@ -3504,7 +3151,7 @@ export function returnSaleItem(saleItemId: number, reason: string = ''): { succe
 
 // Payments
 export function getPayments(): Payment[] {
-  return getStoredItem<Payment[]>(STORAGE_KEYS.PAYMENTS, initialPayments);
+  return getStoredItem<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
 }
 
 export function recordPayment(
@@ -3589,7 +3236,7 @@ export function recordPayment(
 
 // Expenses
 export function getExpenses(): Expense[] {
-  return getStoredItem<Expense[]>(STORAGE_KEYS.EXPENSES, initialExpenses);
+  return getStoredItem<Expense[]>(STORAGE_KEYS.EXPENSES, []);
 }
 
 export function saveExpense(expenseData: Partial<Expense> & { title: string; amount: number; category: Expense['category'] }): { success: boolean; message: string; expense?: Expense } {
@@ -3633,7 +3280,7 @@ export function deleteExpense(id: number): { success: boolean; message: string }
 
 // Settings
 export function getSettings(): SystemSettings {
-  const settings = getStoredItem<SystemSettings>(STORAGE_KEYS.SETTINGS, initialSettings);
+  const settings = getStoredItem<SystemSettings>(STORAGE_KEYS.SETTINGS, CLEAN_DEFAULT_SETTINGS);
 
   let settingsChanged = false;
   if (!settings.base_currency || settings.base_currency !== 'PKR' || settings.currency_symbol !== 'Rs.') {
@@ -3678,37 +3325,20 @@ export function getSettings(): SystemSettings {
     }
   }
 
+  if (!Array.isArray(settings.branches)) {
+    settings.branches = [];
+    settingsChanged = true;
+  }
+
   if (settingsChanged) {
     setStoredItem(STORAGE_KEYS.SETTINGS, settings);
   }
 
-  const branchesPurged = localStorage.getItem(PURGE_FLAG_KEYS.BRANCHES_PURGED) === 'true';
-  if ((!settings.branches || settings.branches.length === 0) && !branchesPurged) {
-    settings.branches = initialSettings.branches ? [...initialSettings.branches] : [
-      {
-        id: 'br-1',
-        name: settings.branch_name || 'Gulberg III Shop',
-        code: 'ASK-LHR-01',
-        address: settings.business_address || 'Main Boulevard, Gulberg III',
-        address_line_2: settings.address_line_2 || 'Block B, Plot 42',
-        phone: settings.business_phone || '+92 42 35710000',
-        cell_phone: settings.cell_phone || '+92 300 1234567',
-        email: settings.email || 'gulberg@askari.com',
-        region: settings.region || 'Punjab',
-        city: settings.city || 'Lahore',
-        postal_code: settings.postal_code || '54660',
-        country: settings.country || 'Pakistan',
-        is_head_office: true,
-      }
-    ];
-    settings.active_branch_id = 'br-1';
-    setStoredItem(STORAGE_KEYS.SETTINGS, settings);
-  } else if (!settings.branches) {
-    settings.branches = [];
-  }
-
-  if (!settings.active_branch_id && settings.branches.length > 0) {
+  if (settings.branches.length > 0 && (!settings.active_branch_id || !settings.branches.some((b) => b.id === settings.active_branch_id))) {
     settings.active_branch_id = settings.branches[0].id;
+  } else if (settings.branches.length === 0) {
+    settings.active_branch_id = '';
+    settings.branch_name = '';
   }
 
   const activeBranch = settings.branches?.find((b) => b.id === settings.active_branch_id) || settings.branches?.[0];
@@ -3725,7 +3355,7 @@ export function getSettings(): SystemSettings {
     settings.country = activeBranch.country || '';
   }
 
-  if (!settings.base_currency) settings.base_currency = 'BDT';
+  if (!settings.base_currency) settings.base_currency = 'PKR';
   if (!settings.active_display_currency) settings.active_display_currency = settings.base_currency;
   if (!settings.duplicate_scan_behavior) settings.duplicate_scan_behavior = 'increase_qty';
 
@@ -4038,7 +3668,7 @@ export function globalSearch(query: string): Array<{ type: string; id: number; t
   return results.slice(0, 10);
 }
 
-function readRawTenantList<T>(baseKey: string, chainId: string, defaultFallback: T[]): T[] {
+function readRawTenantList<T>(baseKey: string, chainId: string, _defaultFallback: T[] = []): T[] {
   try {
     const tenantKey = getTenantStorageKey(baseKey, chainId);
     const raw = localStorage.getItem(tenantKey);
@@ -4046,7 +3676,7 @@ function readRawTenantList<T>(baseKey: string, chainId: string, defaultFallback:
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     }
-    return chainId === 'chain-default' ? defaultFallback : [];
+    return [];
   } catch {
     return [];
   }
@@ -4104,62 +3734,62 @@ export async function syncAllLocalToPostgres(): Promise<{
       items.push({ table: TABLE_NAMES.USERS, chainId, record: { ...u, chain_id: chainId } as unknown as Record<string, unknown> });
     }
 
-    const itemGroups = readRawTenantList<ItemGroup>(STORAGE_KEYS.ITEM_GROUPS, chainId, initialItemGroups);
+    const itemGroups = readRawTenantList<ItemGroup>(STORAGE_KEYS.ITEM_GROUPS, chainId);
     for (const g of itemGroups) {
       items.push({ table: TABLE_NAMES.ITEM_GROUPS, chainId, record: g as unknown as Record<string, unknown> });
     }
 
-    const categories = readRawTenantList<Category>(STORAGE_KEYS.CATEGORIES, chainId, initialCategories);
+    const categories = readRawTenantList<Category>(STORAGE_KEYS.CATEGORIES, chainId);
     for (const cat of categories) {
       items.push({ table: TABLE_NAMES.CATEGORIES, chainId, record: cat as unknown as Record<string, unknown> });
     }
 
-    const brands = readRawTenantList<Brand>(STORAGE_KEYS.BRANDS, chainId, initialBrands);
+    const brands = readRawTenantList<Brand>(STORAGE_KEYS.BRANDS, chainId);
     for (const b of brands) {
       items.push({ table: TABLE_NAMES.BRANDS, chainId, record: b as unknown as Record<string, unknown> });
     }
 
-    const defs = readRawTenantList<ItemDefinition>(STORAGE_KEYS.ITEM_DEFINITIONS, chainId, initialItemDefinitions);
+    const defs = readRawTenantList<ItemDefinition>(STORAGE_KEYS.ITEM_DEFINITIONS, chainId);
     for (const d of defs) {
       items.push({ table: TABLE_NAMES.ITEM_DEFINITIONS, chainId, record: d as unknown as Record<string, unknown> });
     }
 
-    const suppliers = readRawTenantList<Supplier>(STORAGE_KEYS.SUPPLIERS, chainId, initialSuppliers);
+    const suppliers = readRawTenantList<Supplier>(STORAGE_KEYS.SUPPLIERS, chainId);
     for (const sup of suppliers) {
       items.push({ table: TABLE_NAMES.SUPPLIERS, chainId, record: sup as unknown as Record<string, unknown> });
     }
 
-    const customers = readRawTenantList<Customer>(STORAGE_KEYS.CUSTOMERS, chainId, initialCustomers);
+    const customers = readRawTenantList<Customer>(STORAGE_KEYS.CUSTOMERS, chainId);
     for (const cust of customers) {
       items.push({ table: TABLE_NAMES.CUSTOMERS, chainId, record: cust as unknown as Record<string, unknown> });
     }
 
-    const purchases = readRawTenantList<Purchase>(STORAGE_KEYS.PURCHASES, chainId, initialPurchases);
+    const purchases = readRawTenantList<Purchase>(STORAGE_KEYS.PURCHASES, chainId);
     for (const pur of purchases) {
       items.push({ table: TABLE_NAMES.PURCHASES, chainId, record: pur as unknown as Record<string, unknown> });
     }
 
-    const sales = readRawTenantList<Sale>(STORAGE_KEYS.SALES, chainId, initialSales);
+    const sales = readRawTenantList<Sale>(STORAGE_KEYS.SALES, chainId);
     for (const s of sales) {
       items.push({ table: TABLE_NAMES.SALES, chainId, record: s as unknown as Record<string, unknown> });
     }
 
-    const saleItems = readRawTenantList<SaleItem>(STORAGE_KEYS.SALE_ITEMS, chainId, initialSaleItems);
+    const saleItems = readRawTenantList<SaleItem>(STORAGE_KEYS.SALE_ITEMS, chainId);
     for (const si of saleItems) {
       items.push({ table: TABLE_NAMES.SALE_ITEMS, chainId, record: si as unknown as Record<string, unknown> });
     }
 
-    const payments = readRawTenantList<Payment>(STORAGE_KEYS.PAYMENTS, chainId, initialPayments);
+    const payments = readRawTenantList<Payment>(STORAGE_KEYS.PAYMENTS, chainId);
     for (const pay of payments) {
       items.push({ table: TABLE_NAMES.PAYMENTS, chainId, record: pay as unknown as Record<string, unknown> });
     }
 
-    const expenses = readRawTenantList<Expense>(STORAGE_KEYS.EXPENSES, chainId, initialExpenses);
+    const expenses = readRawTenantList<Expense>(STORAGE_KEYS.EXPENSES, chainId);
     for (const exp of expenses) {
       items.push({ table: TABLE_NAMES.EXPENSES, chainId, record: exp as unknown as Record<string, unknown> });
     }
 
-    const logs = readRawTenantList<ActivityLog>(STORAGE_KEYS.LOGS, chainId, initialActivityLogs);
+    const logs = readRawTenantList<ActivityLog>(STORAGE_KEYS.LOGS, chainId);
     for (const log of logs) {
       items.push({ table: TABLE_NAMES.ACTIVITY_LOGS, chainId, record: { ...log, chain_id: chainId } as unknown as Record<string, unknown> });
     }
@@ -4196,7 +3826,6 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
 
   let syncedTables = 0;
   let totalRows = 0;
-  const activeChainId = getActiveChainId();
 
   const num = (val: unknown, fallback = 0): number => {
     if (val === null || val === undefined || val === '') return fallback;
@@ -4204,35 +3833,45 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
-  const forActiveChain = (rows: unknown[]): any[] =>
-    rows.filter((r: any) => !r.chain_id || r.chain_id === activeChainId);
+  const forChain = (rows: unknown[], chainId: string): any[] =>
+    rows.filter((r: any) => (r?.chain_id || 'chain-default') === chainId);
+
+  const writeTenantList = (baseKey: string, chainId: string, data: unknown[]) => {
+    localStorage.setItem(getTenantStorageKey(baseKey, chainId), JSON.stringify(data));
+  };
 
   suppressPgSync = true;
   try {
-    if (Array.isArray(snapshot.SUBSCRIPTION_PLANS) && snapshot.SUBSCRIPTION_PLANS.length > 0) {
-      const mapped = snapshot.SUBSCRIPTION_PLANS.map((r: any) => ({
-        id: String(r.id),
-        name: r.name || 'Plan',
-        description: r.description || '',
-        monthly_price: num(r.monthly_price),
-        annual_price: num(r.annual_price),
-        max_branches: num(r.max_branches, 5),
-        max_users: num(r.max_users, 25),
-        max_pos_terminals: num(r.max_pos_terminals, 10),
-        storage_limit_mb: num(r.storage_limit_mb, 1024),
-        available_modules: Array.isArray(r.available_modules) ? r.available_modules : [...ALL_MODULE_KEYS],
-        status: r.status || 'active',
-        created_at: r.created_at || new Date().toISOString(),
-        updated_at: r.updated_at || undefined,
-      }));
-      const { plans: normalizedPlans } = normalizeSubscriptionPlanList(mapped);
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalizedPlans));
-      syncedTables++;
-      totalRows += normalizedPlans.length;
+    if (Array.isArray(snapshot.SUBSCRIPTION_PLANS)) {
+      if (snapshot.SUBSCRIPTION_PLANS.length > 0) {
+        const mapped = snapshot.SUBSCRIPTION_PLANS.map((r: any) => ({
+          id: String(r.id),
+          name: r.name || 'Plan',
+          description: r.description || '',
+          monthly_price: num(r.monthly_price),
+          annual_price: num(r.annual_price),
+          max_branches: num(r.max_branches, 5),
+          max_users: num(r.max_users, 25),
+          max_pos_terminals: num(r.max_pos_terminals, 10),
+          storage_limit_mb: num(r.storage_limit_mb, 1024),
+          available_modules: Array.isArray(r.available_modules) ? r.available_modules : [...ALL_MODULE_KEYS],
+          status: r.status || 'active',
+          created_at: r.created_at || new Date().toISOString(),
+          updated_at: r.updated_at || undefined,
+        }));
+        const { plans: normalizedPlans } = normalizeSubscriptionPlanList(mapped);
+        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(normalizedPlans));
+        syncedTables++;
+        totalRows += normalizedPlans.length;
+      } else {
+        const { plans: defaultPlans } = normalizeSubscriptionPlanList(DEFAULT_SUBSCRIPTION_PLANS);
+        localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, JSON.stringify(defaultPlans));
+      }
     }
 
-    if (Array.isArray(snapshot.STORE_CHAINS) && snapshot.STORE_CHAINS.length > 0) {
-      const mapped = snapshot.STORE_CHAINS.map((r: any) => ({
+    let mappedChains: StoreChain[] = [];
+    if (Array.isArray(snapshot.STORE_CHAINS)) {
+      mappedChains = snapshot.STORE_CHAINS.map((r: any) => ({
         id: String(r.id),
         name: r.name || '',
         code: r.code || '',
@@ -4261,102 +3900,151 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
         created_at: r.created_at || new Date().toISOString(),
         is_active: r.is_active !== false,
       }));
-      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(mapped));
+      localStorage.setItem(STORAGE_KEYS.STORE_CHAINS, JSON.stringify(mappedChains));
       syncedTables++;
-      totalRows += mapped.length;
+      totalRows += mappedChains.length;
+
+      const currentActive = getActiveChainId();
+      const activeStillExists = mappedChains.some((c) => c.id === currentActive);
+      if (!activeStillExists) {
+        const nextActive = mappedChains[0]?.id || 'chain-default';
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_CHAIN_ID, nextActive);
+      }
     }
 
-    if (Array.isArray(snapshot.SUBSCRIPTION_HISTORY) && snapshot.SUBSCRIPTION_HISTORY.length > 0) {
+    if (Array.isArray(snapshot.SUBSCRIPTION_HISTORY)) {
       localStorage.setItem(STORAGE_KEYS.SUBSCRIPTION_HISTORY, JSON.stringify(snapshot.SUBSCRIPTION_HISTORY));
-      syncedTables++;
-      totalRows += snapshot.SUBSCRIPTION_HISTORY.length;
+      if (snapshot.SUBSCRIPTION_HISTORY.length > 0) {
+        syncedTables++;
+        totalRows += snapshot.SUBSCRIPTION_HISTORY.length;
+      }
     }
+
+    // Collect every known chain ID (from PostgreSQL + existing localStorage keys) so deleted rows are cleared for ALL tenants
+    const chainIdSet = new Set<string>(['chain-default', ...collectAllKnownChainIds()]);
+    for (const c of mappedChains) {
+      if (c?.id) chainIdSet.add(c.id);
+    }
+    const allChainIds = Array.from(chainIdSet);
+    const chainMap = new Map<string, StoreChain>(mappedChains.map((c) => [c.id, c]));
 
     if (Array.isArray(snapshot.BRANCHES)) {
-      const chainBranches = forActiveChain(snapshot.BRANCHES).map((r: any) => ({
-        id: String(r.id),
-        organization_id: r.chain_id || activeChainId,
-        name: r.name || '',
-        code: r.code || '',
-        branch_type: r.branch_type || 'retail_outlet',
-        contact_person: r.contact_person || '',
-        manager_user_id: r.manager_user_id ? num(r.manager_user_id) : null,
-        manager_name: r.manager_name || '',
-        address: r.address || '',
-        address_line_2: r.address_line_2 || '',
-        phone: r.phone || '',
-        cell_phone: r.cell_phone || '',
-        email: r.email || '',
-        region: r.region || '',
-        city: r.city || '',
-        postal_code: r.postal_code || '',
-        country: r.country || 'Pakistan',
-        status: r.status || (r.is_active === false ? 'inactive' : 'active'),
-        opening_date: r.opening_date ? String(r.opening_date).split('T')[0] : undefined,
-        is_head_office: Boolean(r.is_head_office),
-        is_active: r.is_active !== false,
-      }));
-      if (chainBranches.length > 0) {
-        const currentSettings = getSettings();
-        const nextActiveBranchId = chainBranches.some((b) => b.id === currentSettings.active_branch_id)
-          ? currentSettings.active_branch_id
-          : chainBranches[0].id;
-        setStoredItem(STORAGE_KEYS.SETTINGS, {
-          ...currentSettings,
-          branches: chainBranches,
-          active_branch_id: nextActiveBranchId,
-        });
-        syncedTables++;
-        totalRows += chainBranches.length;
+      let branchRowsCount = 0;
+      for (const cid of allChainIds) {
+        const chainBranches = forChain(snapshot.BRANCHES, cid).map((r: any) => ({
+          id: String(r.id),
+          organization_id: r.chain_id || cid,
+          name: r.name || '',
+          code: r.code || '',
+          branch_type: r.branch_type || 'retail_outlet',
+          contact_person: r.contact_person || '',
+          manager_user_id: r.manager_user_id ? num(r.manager_user_id) : null,
+          manager_name: r.manager_name || '',
+          address: r.address || '',
+          address_line_2: r.address_line_2 || '',
+          phone: r.phone || '',
+          cell_phone: r.cell_phone || '',
+          email: r.email || '',
+          region: r.region || '',
+          city: r.city || '',
+          postal_code: r.postal_code || '',
+          country: r.country || 'Pakistan',
+          status: r.status || (r.is_active === false ? 'inactive' : 'active'),
+          opening_date: r.opening_date ? String(r.opening_date).split('T')[0] : undefined,
+          is_head_office: Boolean(r.is_head_office),
+          is_active: r.is_active !== false,
+        }));
+        branchRowsCount += chainBranches.length;
+
+        const settingsKey = getTenantStorageKey(STORAGE_KEYS.SETTINGS, cid);
+        let baseSettings: SystemSettings = { ...CLEAN_DEFAULT_SETTINGS };
+        try {
+          const rawS = localStorage.getItem(settingsKey);
+          if (rawS) {
+            baseSettings = { ...CLEAN_DEFAULT_SETTINGS, ...JSON.parse(rawS) };
+          }
+        } catch {
+          // ignore
+        }
+        const matchedChain = chainMap.get(cid);
+        const existingActive = baseSettings.active_branch_id;
+        const activeBranch = chainBranches.find((b) => b.id === existingActive) || chainBranches[0];
+        localStorage.setItem(
+          settingsKey,
+          JSON.stringify({
+            ...baseSettings,
+            business_name: matchedChain?.name || (cid === 'chain-default' ? 'Rozana POS' : baseSettings.business_name),
+            logo_url: matchedChain?.logo_url ?? baseSettings.logo_url,
+            branches: chainBranches,
+            active_branch_id: activeBranch ? activeBranch.id : '',
+            branch_name: activeBranch ? activeBranch.name : '',
+          })
+        );
       }
+      syncedTables++;
+      totalRows += branchRowsCount;
     }
 
     if (Array.isArray(snapshot.ROLES)) {
-      const chainRoles = forActiveChain(snapshot.ROLES);
-      if (chainRoles.length > 0) {
-        setStoredItem(STORAGE_KEYS.ROLES, chainRoles);
-        syncedTables++;
-        totalRows += chainRoles.length;
+      let roleRowsCount = 0;
+      for (const cid of allChainIds) {
+        const chainRoles = forChain(snapshot.ROLES, cid);
+        roleRowsCount += chainRoles.length;
+        writeTenantList(STORAGE_KEYS.ROLES, cid, chainRoles);
       }
+      if (roleRowsCount > 0) syncedTables++;
+      totalRows += roleRowsCount;
     }
 
     if (Array.isArray(snapshot.USERS)) {
-      const chainUsers = snapshot.USERS
-        .filter((r: any) => r.chain_id === activeChainId || (activeChainId === 'chain-default' && (!r.chain_id || r.is_super_admin)))
-        .map((r: any) => ({
-          id: num(r.id),
-          organization_id: r.chain_id || activeChainId,
-          full_name: r.full_name || r.username || 'User',
-          username: r.username || '',
-          email: r.email || '',
-          phone: r.phone || '',
-          role: r.role || 'cashier',
-          custom_role_id: r.custom_role_id || undefined,
-          designation: r.designation || '',
-          employee_code: r.employee_code || '',
-          assigned_branch_id: r.assigned_branch_id || 'all',
-          assigned_branches: Array.isArray(r.assigned_branches) ? r.assigned_branches : [r.assigned_branch_id || 'all'],
-          pos_pin: r.pos_pin || '1234',
-          password: r.password_hash || r.pos_pin || '1234',
-          account_status: r.account_status || (r.is_active === false ? 'inactive' : 'active'),
-          is_super_admin: Boolean(r.is_super_admin),
-          is_active: r.is_active !== false,
-          permissions: r.permissions && typeof r.permissions === 'object' ? r.permissions : defaultPermissionsByRole(r.role || 'cashier'),
-          last_login: r.last_login || undefined,
-          created_at: r.created_at || new Date().toISOString(),
-          updated_at: r.updated_at || undefined,
-        }));
-      if (chainUsers.length > 0) {
-        setStoredItem(STORAGE_KEYS.USERS, chainUsers.map(normalizeUserRecord));
-        syncedTables++;
-        totalRows += chainUsers.length;
+      let userRowsCount = 0;
+      for (const cid of allChainIds) {
+        const chainUsers = snapshot.USERS
+          .filter((r: any) =>
+            cid === 'chain-default'
+              ? r.chain_id === 'chain-default' || !r.chain_id || r.is_super_admin
+              : r.chain_id === cid && !r.is_super_admin
+          )
+          .map((r: any) => ({
+            id: num(r.id),
+            organization_id: r.chain_id || cid,
+            full_name: r.full_name || r.username || 'User',
+            username: r.username || '',
+            email: r.email || '',
+            phone: r.phone || '',
+            role: r.role || 'cashier',
+            custom_role_id: r.custom_role_id || undefined,
+            designation: r.designation || '',
+            employee_code: r.employee_code || '',
+            assigned_branch_id: r.assigned_branch_id || 'all',
+            assigned_branches: Array.isArray(r.assigned_branches) ? r.assigned_branches : [r.assigned_branch_id || 'all'],
+            pos_pin: r.pos_pin || '1234',
+            password: r.password_hash || r.pos_pin || '1234',
+            account_status: r.account_status || (r.is_active === false ? 'inactive' : 'active'),
+            is_super_admin: Boolean(r.is_super_admin),
+            is_active: r.is_active !== false,
+            permissions: r.permissions && typeof r.permissions === 'object' ? r.permissions : defaultPermissionsByRole(r.role || 'cashier'),
+            last_login: r.last_login || undefined,
+            created_at: r.created_at || new Date().toISOString(),
+            updated_at: r.updated_at || undefined,
+          }))
+          .map(normalizeUserRecord);
+
+        if (cid === 'chain-default' && !chainUsers.some((u) => (u.username || '').toLowerCase() === 'mobin')) {
+          chainUsers.unshift(MOBIN_SUPER_ADMIN);
+        }
+
+        userRowsCount += chainUsers.length;
+        writeTenantList(STORAGE_KEYS.USERS, cid, chainUsers);
       }
+      syncedTables++;
+      totalRows += userRowsCount;
     }
 
     if (Array.isArray(snapshot.ITEM_GROUPS)) {
-      const rows = forActiveChain(snapshot.ITEM_GROUPS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.ITEM_GROUPS, cid).map((r: any) => ({
           id: num(r.id),
           group_id: r.group_id || `GRP-${r.id}`,
           group_description: r.group_description || '',
@@ -4364,16 +4052,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.ITEM_GROUPS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.ITEM_GROUPS, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.CATEGORIES)) {
-      const rows = forActiveChain(snapshot.CATEGORIES);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.CATEGORIES, cid).map((r: any) => ({
           id: num(r.id),
           item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
           name: r.name || '',
@@ -4382,16 +4071,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.CATEGORIES, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.CATEGORIES, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.BRANDS)) {
-      const rows = forActiveChain(snapshot.BRANDS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.BRANDS, cid).map((r: any) => ({
           id: num(r.id),
           code: r.code || `BRD-${r.id}`,
           name: r.name || '',
@@ -4400,16 +4090,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.BRANDS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.BRANDS, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.ITEM_DEFINITIONS)) {
-      const rows = forActiveChain(snapshot.ITEM_DEFINITIONS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.ITEM_DEFINITIONS, cid).map((r: any) => ({
           id: num(r.id),
           item_group_id: r.item_group_id ? num(r.item_group_id) : undefined,
           category_id: r.category_id ? num(r.category_id) : undefined,
@@ -4442,16 +4133,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.ITEM_DEFINITIONS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.ITEM_DEFINITIONS, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.CUSTOMERS)) {
-      const rows = forActiveChain(snapshot.CUSTOMERS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.CUSTOMERS, cid).map((r: any) => ({
           id: num(r.id),
           name: r.name || '',
           phone: r.phone || '',
@@ -4467,16 +4159,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.CUSTOMERS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.CUSTOMERS, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.SUPPLIERS)) {
-      const rows = forActiveChain(snapshot.SUPPLIERS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.SUPPLIERS, cid).map((r: any) => ({
           id: num(r.id),
           name: r.name || '',
           phone: r.phone || '',
@@ -4485,16 +4178,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.SUPPLIERS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.SUPPLIERS, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.PURCHASES)) {
-      const rows = forActiveChain(snapshot.PURCHASES);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.PURCHASES, cid).map((r: any) => ({
           id: num(r.id),
           purchase_no: r.purchase_no || `PUR-${r.id}`,
           supplier_id: r.supplier_id ? num(r.supplier_id) : null,
@@ -4511,19 +4205,21 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.PURCHASES, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.PURCHASES, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
-    const activeSaleIds = new Set<number>();
+    const saleIdsByChain = new Map<string, Set<number>>();
     if (Array.isArray(snapshot.SALES)) {
-      const rows = forActiveChain(snapshot.SALES);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => {
+      let count = 0;
+      for (const cid of allChainIds) {
+        const saleIdSet = new Set<number>();
+        const mapped = forChain(snapshot.SALES, cid).map((r: any) => {
           const saleId = num(r.id);
-          activeSaleIds.add(saleId);
+          saleIdSet.add(saleId);
           return {
             id: saleId,
             invoice_no: r.invoice_no || `INV-${r.id}`,
@@ -4548,17 +4244,21 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
             created_at: r.created_at || new Date().toISOString(),
           };
         });
-        setStoredItem(STORAGE_KEYS.SALES, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        saleIdsByChain.set(cid, saleIdSet);
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.SALES, cid, mapped);
       }
+      syncedTables++;
+      totalRows += count;
     }
 
-    if (Array.isArray(snapshot.SALE_ITEMS) && snapshot.SALE_ITEMS.length > 0) {
-      const rows = activeSaleIds.size > 0
-        ? snapshot.SALE_ITEMS.filter((r: any) => activeSaleIds.has(num(r.sale_id)))
-        : snapshot.SALE_ITEMS;
-      if (rows.length > 0) {
+    if (Array.isArray(snapshot.SALE_ITEMS)) {
+      let count = 0;
+      for (const cid of allChainIds) {
+        const saleIdSet = saleIdsByChain.get(cid) || new Set<number>();
+        const rows = snapshot.SALE_ITEMS.filter((r: any) =>
+          r.chain_id ? r.chain_id === cid : saleIdSet.has(num(r.sale_id))
+        );
         const mapped = rows.map((r: any) => ({
           id: num(r.id),
           sale_id: num(r.sale_id),
@@ -4573,16 +4273,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           line_total: num(r.subtotal || r.line_total),
           subtotal: num(r.subtotal || r.line_total),
         }));
-        setStoredItem(STORAGE_KEYS.SALE_ITEMS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.SALE_ITEMS, cid, mapped);
       }
+      if (count > 0) syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.PAYMENTS)) {
-      const rows = forActiveChain(snapshot.PAYMENTS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.PAYMENTS, cid).map((r: any) => ({
           id: num(r.id),
           sale_id: r.sale_id ? num(r.sale_id) : null,
           purchase_id: r.purchase_id ? num(r.purchase_id) : null,
@@ -4595,16 +4296,17 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.PAYMENTS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.PAYMENTS, cid, mapped);
       }
+      if (count > 0) syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.EXPENSES)) {
-      const rows = forActiveChain(snapshot.EXPENSES);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.EXPENSES, cid).map((r: any) => ({
           id: num(r.id),
           title: r.title || '',
           category: r.category || 'other',
@@ -4614,18 +4316,19 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           created_by: num(r.created_by, 1),
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.EXPENSES, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.EXPENSES, cid, mapped);
       }
+      if (count > 0) syncedTables++;
+      totalRows += count;
     }
 
     if (Array.isArray(snapshot.ACTIVITY_LOGS)) {
-      const rows = forActiveChain(snapshot.ACTIVITY_LOGS);
-      if (rows.length > 0) {
-        const mapped = rows.map((r: any) => ({
+      let count = 0;
+      for (const cid of allChainIds) {
+        const mapped = forChain(snapshot.ACTIVITY_LOGS, cid).map((r: any) => ({
           id: num(r.id),
-          organization_id: r.organization_id || r.chain_id || activeChainId,
+          organization_id: r.organization_id || r.chain_id || cid,
           organization_name: r.organization_name || '',
           branch_id: r.branch_id || undefined,
           branch_name: r.branch_name || undefined,
@@ -4637,10 +4340,11 @@ export function hydrateFromPostgresSnapshot(snapshot: Record<string, unknown[]>)
           details: r.details || '',
           created_at: r.created_at || new Date().toISOString(),
         }));
-        setStoredItem(STORAGE_KEYS.LOGS, mapped);
-        syncedTables++;
-        totalRows += mapped.length;
+        count += mapped.length;
+        writeTenantList(STORAGE_KEYS.LOGS, cid, mapped);
       }
+      if (count > 0) syncedTables++;
+      totalRows += count;
     }
   } finally {
     suppressPgSync = false;
@@ -4700,11 +4404,11 @@ export function getLocalPurgeCounts(): Record<PurgeTargetKey, number> {
       branchesCount += getOrganizationBranches(cid).length;
     }
     usersCount += getOrganizationUsers(cid).length;
-    itemDefsCount += readRawTenantList<ItemDefinition>(STORAGE_KEYS.ITEM_DEFINITIONS, cid, initialItemDefinitions).length;
-    itemGroupsCount += readRawTenantList<ItemGroup>(STORAGE_KEYS.ITEM_GROUPS, cid, initialItemGroups).length;
-    categoriesCount += readRawTenantList<Category>(STORAGE_KEYS.CATEGORIES, cid, initialCategories).length;
-    suppliersCount += readRawTenantList<Supplier>(STORAGE_KEYS.SUPPLIERS, cid, initialSuppliers).length;
-    customersCount += readRawTenantList<Customer>(STORAGE_KEYS.CUSTOMERS, cid, initialCustomers).length;
+    itemDefsCount += readRawTenantList<ItemDefinition>(STORAGE_KEYS.ITEM_DEFINITIONS, cid).length;
+    itemGroupsCount += readRawTenantList<ItemGroup>(STORAGE_KEYS.ITEM_GROUPS, cid).length;
+    categoriesCount += readRawTenantList<Category>(STORAGE_KEYS.CATEGORIES, cid).length;
+    suppliersCount += readRawTenantList<Supplier>(STORAGE_KEYS.SUPPLIERS, cid).length;
+    customersCount += readRawTenantList<Customer>(STORAGE_KEYS.CUSTOMERS, cid).length;
   }
 
   return {
@@ -4763,7 +4467,7 @@ export function purgeSelectedLocalData(targets: PurgeTargetKey[]): void {
         const settingsKey = getTenantStorageKey(STORAGE_KEYS.SETTINGS, cid);
         try {
           const raw = localStorage.getItem(settingsKey);
-          const parsed = raw ? JSON.parse(raw) : { ...initialSettings };
+          const parsed = raw ? JSON.parse(raw) : { ...CLEAN_DEFAULT_SETTINGS };
           localStorage.setItem(
             settingsKey,
             JSON.stringify({
@@ -4776,7 +4480,7 @@ export function purgeSelectedLocalData(targets: PurgeTargetKey[]): void {
         } catch {
           localStorage.setItem(
             settingsKey,
-            JSON.stringify({ ...initialSettings, branches: [], active_branch_id: '', branch_name: '' })
+            JSON.stringify({ ...CLEAN_DEFAULT_SETTINGS, branches: [], active_branch_id: '', branch_name: '' })
           );
         }
       }

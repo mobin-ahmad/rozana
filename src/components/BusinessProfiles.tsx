@@ -494,7 +494,7 @@ export const BusinessProfiles: React.FC<BusinessProfilesProps> = ({
                     </button>
                   )}
 
-                  {chain.id !== 'chain-default' && chain.id !== 'chain-jks' && (
+                  {chain.id !== 'chain-default' && (
                     <button
                       type="button"
                       onClick={() => handleDelete(chain)}

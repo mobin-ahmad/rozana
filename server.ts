@@ -1416,6 +1416,8 @@ app.post('/api/db/purge-records', async (req: Request, res: Response) => {
           case 'organizations':
             result = await client.query('DELETE FROM "STORE_CHAINS"');
             deletedCounts.organizations = result.rowCount ?? 0;
+            await client.query('DELETE FROM "SUBSCRIPTION_HISTORY"');
+            await client.query('DELETE FROM "ROLES"');
             break;
         }
       }

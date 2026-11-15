@@ -454,10 +454,10 @@ ALTER TABLE "EXPENSES" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
 ALTER TABLE "ACTIVITY_LOGS" ADD COLUMN IF NOT EXISTS client_ref VARCHAR(128);
 
 -- ========================================================================
--- SEED DATA DUMP (ALL TABLES UPPERCASE)
+-- SYSTEM DEFAULTS ONLY (NO DEMO/SEED ORGANIZATIONS, BRANCHES, OR ITEMS)
 -- ========================================================================
 
--- Subscription Plans
+-- Subscription Plans (System Tiers)
 INSERT INTO "SUBSCRIPTION_PLANS" (id, name, description, monthly_price, annual_price, max_branches, max_users, max_pos_terminals, storage_limit_mb, available_modules, status)
 VALUES
 ('plan-free', 'Free', 'Evaluation tier for single-outlet retail shops', 0.00, 0.00, 3, 10, 2, 512, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","organization","users"]', 'active'),
@@ -466,156 +466,15 @@ VALUES
 ('plan-enterprise', 'Enterprise', 'Unlimited-scale corporate chains, custom roles & full ERP', 29000.00, 290000.00, 100, 500, 100, 102400, '["dashboard","pos","inventory","purchases","sales","customers","suppliers","payments","expenses","reports","organization","users","settings","audit_logs"]', 'active')
 ON CONFLICT (id) DO NOTHING;
 
--- Store Chains / Organizations
-INSERT INTO "STORE_CHAINS" (id, name, code, business_type, industry, description, admin_email, admin_name, admin_username, phone, address, city, country, currency, currency_symbol, plan_id, max_branches, max_users, max_pos_terminals, status, is_active)
-VALUES 
-('chain-default', 'Askari Departmental Store Chain', 'ASKARI', 'Supermarket & General Retail', 'Retail & Departmental Store', 'Premier departmental store and retail supermarket chain.', 'admin@askari.com', 'Askari System Admin', 'admin', '+92 300 1234567', 'Main Boulevard, Gulberg III, Lahore', 'Lahore', 'Pakistan', 'PKR', 'Rs.', 'plan-enterprise', 100, 500, 100, 'active', TRUE),
-('chain-jks', 'JKS Cash & Carry', 'JKS-CC', 'Wholesale & Retail Supermarket', 'Cash & Carry Supermarket', 'Discount FMCG, grocery and household bulk cash & carry network.', 'jks@jkscashandcarry.com', 'JKS Store Admin', 'jks', '+92 321 9876543', 'Plot 12-A, Commercial Market, Phase 5 DHA, Lahore', 'Lahore', 'Pakistan', 'PKR', 'Rs.', 'plan-growth', 15, 50, 20, 'active', TRUE)
-ON CONFLICT (id) DO NOTHING;
-
--- Branches
-INSERT INTO "BRANCHES" (id, chain_id, name, code, branch_type, address, phone, city, country, status, is_head_office)
-VALUES
-('br-1', 'chain-default', 'Gulberg III Shop', 'ASK-LHR-01', 'head_office', 'Main Boulevard, Gulberg III, Lahore', '+92 42 35710000', 'Lahore', 'Pakistan', 'active', TRUE),
-('br-2', 'chain-default', 'Times Square Branch', 'ASK-NYC-01', 'retail_outlet', '1500 Broadway, Times Square, New York', '+1 212-555-0199', 'New York', 'USA', 'active', FALSE),
-('jks-br-1', 'chain-jks', 'DHA Phase 5 Cash & Carry', 'JKS-DHA-01', 'head_office', 'Plot 12-A, Commercial Market, DHA Phase 5, Lahore', '+92 321 9876543', 'Lahore', 'Pakistan', 'active', TRUE),
-('jks-br-2', 'chain-jks', 'Nespak Society Branch', 'JKS-NSP-01', 'retail_outlet', 'Main Boulevard, Nespak Housing Society, Lahore', '+92 322 1122334', 'Lahore', 'Pakistan', 'active', FALSE)
-ON CONFLICT (id) DO NOTHING;
-
--- Users (PIN / Passwords: '123456' for Mobin, '1234' for admins and cashiers)
+-- Global Super Administrator (Preserved System Account)
 INSERT INTO "USERS" (id, chain_id, full_name, username, email, phone, role, designation, employee_code, assigned_branch_id, pos_pin, password_hash, is_super_admin, is_active)
 VALUES
-(1, NULL, 'Mobin', 'mobin', 'mobin@askari.com', '+92 300 7654321', 'admin', 'SaaS Global Super Administrator', 'SA-001', 'all', '123456', '123456', TRUE, TRUE),
-(2, 'chain-default', 'Askari System Admin', 'admin', 'admin@askari.com', '+92 300 1000001', 'admin', 'General Manager / Owner', 'EMP-001', 'all', '1234', '1234', FALSE, TRUE),
-(3, 'chain-jks', 'JKS Admin', 'jks', 'admin@jks.com', '+92 321 9876543', 'admin', 'General Manager JKS', 'JKS-001', 'jks-br-1', '1234', '1234', FALSE, TRUE),
-(4, 'chain-default', 'Cashier One', 'cashier1', 'cashier1@askari.com', '+92 300 1000003', 'cashier', 'Frontline Cashier', 'CSH-001', 'br-1', '1234', '1234', FALSE, TRUE)
+(1, NULL, 'Mobin', 'mobin', 'mobin@rozana.pos', '+92 300 7654321', 'admin', 'SaaS Global Super Administrator', 'SA-001', 'all', '123456', '123456', TRUE, TRUE)
 ON CONFLICT (username) DO NOTHING;
 
-SELECT setval('"USERS_id_seq"', (SELECT MAX(id) FROM "USERS"));
-
--- Item Groups
-INSERT INTO "ITEM_GROUPS" (id, chain_id, group_id, group_description, is_active, created_by)
-VALUES
-(1, 'chain-default', 'GRP-001', 'Beverages, Cold Drinks & Juices', TRUE, 1),
-(2, 'chain-default', 'GRP-002', 'Packaged Snacks, Biscuits & Confectionery', TRUE, 1),
-(3, 'chain-default', 'GRP-003', 'Dairy, Milk & Breakfast Essentials', TRUE, 1),
-(4, 'chain-default', 'GRP-004', 'Personal Care, Soaps & Toiletries', TRUE, 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('"ITEM_GROUPS_id_seq"', (SELECT MAX(id) FROM "ITEM_GROUPS"));
-
--- Categories
-INSERT INTO "CATEGORIES" (id, chain_id, item_group_id, name, description, is_active, created_by)
-VALUES
-(1, 'chain-default', 1, 'Carbonated Soft Drinks', 'Soda cans, 1.5L and 2.25L family bottles', TRUE, 1),
-(2, 'chain-default', 2, 'Biscuits & Cookies', 'Tea biscuits, cream sandwich and digestive cookies', TRUE, 1),
-(3, 'chain-default', 3, 'UHT Milk & Dairy', 'Tetra pack milk, butter, cheese, and cream', TRUE, 1),
-(4, 'chain-default', 4, 'Soaps & Handwash', 'Bath soaps, liquid antibacterial handwash', TRUE, 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('"CATEGORIES_id_seq"', (SELECT MAX(id) FROM "CATEGORIES"));
-
--- Brands
-INSERT INTO "BRANDS" (id, chain_id, code, name, description, is_active, created_by)
-VALUES
-(1, 'chain-default', 'BRD-001', 'Coca-Cola Company', 'Soft drinks, mineral water and juices', TRUE, 1),
-(2, 'chain-default', 'BRD-002', 'PepsiCo Intl', 'Beverages and snack chips', TRUE, 1),
-(3, 'chain-default', 'BRD-003', 'Nestle Pakistan', 'Dairy, juices, cereals, infant nutrition', TRUE, 1),
-(4, 'chain-default', 'BRD-004', 'Unilever', 'Personal care, soaps, tea and condiments', TRUE, 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('"BRANDS_id_seq"', (SELECT MAX(id) FROM "BRANDS"));
-
--- Item Definitions
-INSERT INTO "ITEM_DEFINITIONS" (id, chain_id, item_group_id, category_id, brand_id, item_code, barcode, item_name, unit_of_measure, printed_price, purchase_rate, sale_rate, packing, stock_quantity, is_active, created_by)
-VALUES
-(1, 'chain-default', 1, 1, 1, 'BEV-COKE-15L', '8901234567891', 'Coca-Cola Regular 1.5 Litre Bottle', 'Bottle', 220.00, 185.00, 210.00, 6, 120, TRUE, 1),
-(2, 'chain-default', 1, 1, 2, 'BEV-PEP-15L', '8901234567892', 'Pepsi Cola 1.5 Litre Bottle', 'Bottle', 220.00, 182.00, 210.00, 6, 95, TRUE, 1),
-(3, 'chain-default', 2, 2, 4, 'SNK-LU-TUC', '8901234567893', 'LU TUC Crackers Family Pack', 'Pack', 150.00, 120.00, 140.00, 12, 180, TRUE, 1),
-(4, 'chain-default', 3, 3, 3, 'DRY-MILK-1L', '8901234567894', 'Nestle MilkPak Full Cream 1000ml', 'Pack', 310.00, 275.00, 300.00, 12, 240, TRUE, 1),
-(5, 'chain-default', 4, 4, 4, 'PC-LUX-140G', '8901234567895', 'Lux Rose & Vitamin E Beauty Bar 140g', 'Bar', 160.00, 130.00, 150.00, 24, 150, TRUE, 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('"ITEM_DEFINITIONS_id_seq"', (SELECT MAX(id) FROM "ITEM_DEFINITIONS"));
-
--- Customers
-INSERT INTO "CUSTOMERS" (id, chain_id, name, phone, address, total_purchase, total_paid, total_due, loyalty_points, qr_code, is_active, created_by)
-VALUES
-(1, 'chain-default', 'Walk-in Customer', '03000000000', 'Direct Store Visit', 45000.00, 45000.00, 0.00, 0, 'CUST-WALKIN', TRUE, 1),
-(2, 'chain-default', 'Apex Mart & Catering', '03001000020', 'Plot 45, Commercial Area, Lahore', 125000.00, 110000.00, 15000.00, 250, 'CUST-03001000020', TRUE, 1),
-(3, 'chain-default', 'Haji Superstore', '03001000021', 'Market Road, Sector 8', 88000.00, 68000.00, 20000.00, 120, 'CUST-03001000021', TRUE, 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('"CUSTOMERS_id_seq"', (SELECT MAX(id) FROM "CUSTOMERS"));
-
--- Suppliers
-INSERT INTO "SUPPLIERS" (id, chain_id, name, phone, address, is_active, created_by)
-VALUES
-(1, 'chain-default', 'Metro Distribution Network', '03001000010', 'Depot #4, Multan Road, Lahore', TRUE, 1),
-(2, 'chain-default', 'National Beverage Bottlers', '03001000011', 'Industrial Estate Kot Lakhpat', TRUE, 1),
-(3, 'chain-default', 'Unilever Pakistan Distribution', '03001000012', 'Plot 18, Commercial Hub', TRUE, 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('"SUPPLIERS_id_seq"', (SELECT MAX(id) FROM "SUPPLIERS"));
-
--- Expenses
-INSERT INTO "EXPENSES" (id, chain_id, title, category, amount, expense_date, notes, created_by)
-VALUES
-(1, 'chain-default', 'Store Premises Monthly Rent', 'rent', 45000.00, CURRENT_DATE - INTERVAL '15 days', 'Main outlet rent', 1),
-(2, 'chain-default', 'Electricity & Utility Bills', 'utility', 18500.00, CURRENT_DATE - INTERVAL '10 days', 'WAPDA electricity bill', 1),
-(3, 'chain-default', 'Cashier & Staff Daily Wages', 'labor', 8500.00, CURRENT_DATE - INTERVAL '5 days', 'Support staff overtime & shift allowance', 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('"EXPENSES"', 'id'), COALESCE((SELECT MAX(id) FROM "EXPENSES"), 1));
-
--- Purchases
-INSERT INTO "PURCHASES" (id, chain_id, purchase_no, supplier_id, item_id, quantity, unit_cost, total_amount, paid_amount, due_amount, purchase_date, notes, status, created_by)
-VALUES
-(1, 'chain-default', 'PUR-20260410-001', 1, 1, 100, 185.00, 18500.00, 18500.00, 0.00, CURRENT_DATE - INTERVAL '20 days', 'Beverages replenishment lot', 'completed', 1),
-(2, 'chain-default', 'PUR-20260415-001', 3, 4, 150, 275.00, 41250.00, 30000.00, 11250.00, CURRENT_DATE - INTERVAL '12 days', 'MilkPak cartons delivery', 'completed', 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('"PURCHASES"', 'id'), COALESCE((SELECT MAX(id) FROM "PURCHASES"), 1));
-
--- Sales
-INSERT INTO "SALES" (id, chain_id, branch_id, invoice_no, customer_id, total_items, subtotal, tax_rate, tax_amount, discount, grand_total, paid_amount, due_amount, payment_method, points_earned, points_redeemed, points_discount_amount, sale_date, status, notes, created_by)
-VALUES
-(1, 'chain-default', 'br-1', 'INV-20260423-001', 1, 2, 630.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 'cash', 6, 0, 0.00, CURRENT_TIMESTAMP - INTERVAL '2 days', 'completed', 'Front register counter sale', 4),
-(2, 'chain-default', 'br-1', 'INV-20260425-001', 2, 4, 1260.00, 0.00, 0.00, 60.00, 1200.00, 1000.00, 200.00, 'card', 12, 0, 0.00, CURRENT_TIMESTAMP - INTERVAL '1 day', 'completed', 'Commercial order delivery', 4)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('"SALES"', 'id'), COALESCE((SELECT MAX(id) FROM "SALES"), 1));
-
--- Sale Items
-INSERT INTO "SALE_ITEMS" (id, sale_id, item_def_id, serial_no, sku, description, packing, ctn_qty, quantity, unit_price, subtotal)
-VALUES
-(1, 1, 1, 'SER-001', '8901234567891', 'Coca-Cola Regular 1.5 Litre Bottle', 6, 0, 3, 210.00, 630.00),
-(2, 2, 4, 'SER-002', '8901234567894', 'Nestle MilkPak Full Cream 1000ml', 12, 0, 4, 300.00, 1200.00)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('"SALE_ITEMS"', 'id'), COALESCE((SELECT MAX(id) FROM "SALE_ITEMS"), 1));
-
--- Payments
-INSERT INTO "PAYMENTS" (id, chain_id, sale_id, purchase_id, payment_type, amount, payment_method, reference_no, payment_date, notes, created_by)
-VALUES
-(1, 'chain-default', 1, NULL, 'customer_payment', 630.00, 'cash', 'CSH-001', CURRENT_DATE - INTERVAL '2 days', 'Walk-in invoice payment', 4),
-(2, 'chain-default', 2, NULL, 'customer_payment', 1000.00, 'card', 'TXN-98421', CURRENT_DATE - INTERVAL '1 day', 'Card transaction advance', 4),
-(3, 'chain-default', NULL, 1, 'supplier_payment', 18500.00, 'bank', 'TRF-1022', CURRENT_DATE - INTERVAL '18 days', 'Direct bank settlement for beverages', 1)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('"PAYMENTS"', 'id'), COALESCE((SELECT MAX(id) FROM "PAYMENTS"), 1));
-
--- Activity Audit Logs
-INSERT INTO "ACTIVITY_LOGS" (id, chain_id, user_id, username, action, table_name, record_id, details, ip_address, created_at)
-VALUES
-(1, 'chain-default', 1, 'mobin', 'LOGIN', 'USERS', '1', 'Super Admin logged in', '127.0.0.1', CURRENT_TIMESTAMP - INTERVAL '1 day'),
-(2, 'chain-default', 4, 'cashier1', 'CREATE', 'SALES', '1', 'Created Sale INV-20260423-001 (Rs. 630.00)', '192.168.1.101', CURRENT_TIMESTAMP - INTERVAL '2 days'),
-(3, 'chain-default', 2, 'admin', 'CREATE', 'ITEM_DEFINITIONS', '1', 'Configured stock item Coca-Cola Regular 1.5L', '192.168.1.100', CURRENT_TIMESTAMP - INTERVAL '10 days')
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('"ACTIVITY_LOGS"', 'id'), COALESCE((SELECT MAX(id) FROM "ACTIVITY_LOGS"), 1));
+SELECT setval('"USERS_id_seq"', COALESCE((SELECT MAX(id) FROM "USERS"), 1));
 
 -- ------------------------------------------------------------------------
--- COMPLETED POSTGRESQL DUMP WITH UPPERCASE TABLES
+-- COMPLETED CLEAN POSTGRESQL SCHEMA (ZERO DEMO SEED DATA)
 -- Ready for: psql -U <user> -d <database> -f schema.sql
 -- ------------------------------------------------------------------------

@@ -86,12 +86,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     authorizedBranches.length > 1;
   const orgAccess = getOrganizationAccessState(activeChain);
 
-  const businessName = activeChain.name || settings.business_name || 'Askari Departmental Store Chain';
-  const branchName = settings.branch_name || (authorizedBranches[0]?.name) || 'Main Branch';
-  const branchAddress = settings.business_address || (authorizedBranches[0]?.address) || activeChain.address || '';
-  const branches = authorizedBranches.length > 0
-    ? authorizedBranches
-    : [{ id: 'br-1', name: branchName, address: branchAddress, code: '01' }];
+  const businessName = activeChain.name || settings.business_name || 'Rozana POS';
+  const branchName = settings.branch_name || authorizedBranches[0]?.name || 'No Branch Created';
+  const branchAddress = settings.business_address || authorizedBranches[0]?.address || activeChain.address || '';
+  const branches = authorizedBranches;
 
   const handleSwitchBusiness = (chainId: string) => {
     if (!isSuperAdmin) {
@@ -171,11 +169,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   className="bg-slate-800 text-white text-xs font-bold rounded-lg px-2 py-1 border border-slate-700 hover:border-amber-400/60 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer max-w-[160px] sm:max-w-[200px] truncate"
                   title="Switch Business Profile (Global Super Admin Only)"
                 >
-                  {storeChains.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
-                      {c.name} {c.code ? `(${c.code})` : ''}
+                  {storeChains.length === 0 ? (
+                    <option value={activeChain.id} className="bg-slate-900 text-white">
+                      {activeChain.name} {activeChain.code ? `(${activeChain.code})` : ''}
                     </option>
-                  ))}
+                  ) : (
+                    storeChains.map((c) => (
+                      <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                        {c.name} {c.code ? `(${c.code})` : ''}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -186,16 +190,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                 <span className="text-[10px] font-black uppercase text-slate-300 tracking-wider">Branch:</span>
                 <select
-                  value={settings.active_branch_id || branches[0]?.id}
+                  value={settings.active_branch_id || branches[0]?.id || ''}
                   onChange={(e) => handleSwitchBranch(e.target.value)}
-                  className="bg-slate-800 text-white text-xs font-bold rounded-lg px-2 py-1 border border-slate-700 hover:border-indigo-400/60 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer max-w-[140px] sm:max-w-[180px] truncate"
+                  disabled={branches.length === 0}
+                  className="bg-slate-800 text-white text-xs font-bold rounded-lg px-2 py-1 border border-slate-700 hover:border-indigo-400/60 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer max-w-[140px] sm:max-w-[180px] truncate disabled:opacity-60"
                   title="Switch Branch"
                 >
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id} className="bg-slate-900 text-white">
-                      {b.name} {b.code ? `[${b.code}]` : ''}
+                  {branches.length === 0 ? (
+                    <option value="" className="bg-slate-900 text-slate-400">
+                      No Branch
                     </option>
-                  ))}
+                  ) : (
+                    branches.map((b) => (
+                      <option key={b.id} value={b.id} className="bg-slate-900 text-white">
+                        {b.name} {b.code ? `[${b.code}]` : ''}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
             </div>
